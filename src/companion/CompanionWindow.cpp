@@ -26,6 +26,7 @@ constexpr int kMargin = 16;   // room for shadows
 constexpr int kPadX = 16;
 constexpr int kPadY = 12;
 constexpr int kStaleTipMs = 30000; // drop a waiting tip after this long
+constexpr qreal kBubbleStartProgress = 0.3;
 const char *kPosKey = "companion/anchor"; // bottom-right corner, so resizing keeps it in place
 
 QColor accentFor(const Tip &tip)
@@ -84,6 +85,13 @@ CompanionWindow::CompanionWindow(QWidget *parent)
 
     m_appear.setStartValue(0.0);
     m_appear.setEndValue(1.0);
+    connect(&m_appear, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        if (m_state == State::Entering && m_sessionActive && m_livePresentationPending
+            && m_current && value.toReal() > kBubbleStartProgress) {
+            m_livePresentationPending = false;
+            emit liveTipPresented(*m_current);
+        }
+    });
     connect(&m_appear, &QVariantAnimation::finished, this, &CompanionWindow::onAppearFinished);
 
     m_frame.setInterval(16);
@@ -97,7 +105,7 @@ CompanionWindow::CompanionWindow(QWidget *parent)
         if (m_pending && m_pendingAge.elapsed() < kStaleTipMs && m_state == State::Hidden) {
             const Tip tip = *m_pending;
             m_pending.reset();
-            popUp(tip);
+            popUp(tip, false);
         } else {
             m_pending.reset();
         }
@@ -135,7 +143,7 @@ void CompanionWindow::showTip(const Tip &tip)
             m_pendingTimer.start(int(m_gapMs - m_sinceHidden.elapsed()));
         return;
     }
-    popUp(tip);
+    popUp(tip, false);
 }
 
 void CompanionWindow::previewTip(const Tip &tip)
@@ -143,8 +151,9 @@ void CompanionWindow::previewTip(const Tip &tip)
     if (m_state == State::Hidden || m_state == State::Leaving) {
         m_appear.stop();
         m_state = State::Hidden;
-        popUp(tip);
+        popUp(tip, true);
     } else {
+        m_livePresentationPending = false;
         setCurrentTip(tip);
         m_hold.start();
     }
@@ -177,7 +186,7 @@ void CompanionWindow::resetPosition()
 
 // ------------------------------------------------------------- show / hide
 
-void CompanionWindow::popUp(const Tip &tip)
+void CompanionWindow::popUp(const Tip &tip, bool preview)
 {
     setCurrentTip(tip);
 
@@ -202,6 +211,7 @@ void CompanionWindow::popUp(const Tip &tip)
     m_appear.setDirection(QAbstractAnimation::Forward);
     m_appear.setDuration(520);
     m_appear.setEasingCurve(QEasingCurve::Linear);
+    m_livePresentationPending = !preview;
     m_appear.start();
     m_frame.start();
     scheduleBlink();
@@ -256,6 +266,7 @@ void CompanionWindow::startLeaving()
     if (m_state == State::Hidden || m_state == State::Leaving)
         return;
     m_hold.stop();
+    m_livePresentationPending = false;
     m_state = State::Leaving;
     m_appear.stop();
     m_appear.setDirection(QAbstractAnimation::Backward);
@@ -344,7 +355,8 @@ void CompanionWindow::paintEvent(QPaintEvent *)
     const Theme::Colors &c = Theme::colors();
     const qreal t = m_appear.currentValue().isValid() ? m_appear.currentValue().toReal() : 1.0;
     const qreal faceT = QEasingCurve(QEasingCurve::OutBack).valueForProgress(clamp01(t / 0.7));
-    const qreal bubbleT = QEasingCurve(QEasingCurve::OutCubic).valueForProgress(clamp01((t - 0.3) / 0.7));
+    const qreal bubbleT = QEasingCurve(QEasingCurve::OutCubic).valueForProgress(
+        clamp01((t - kBubbleStartProgress) / (1.0 - kBubbleStartProgress)));
     const qreal seconds = m_clock.isValid() ? m_clock.elapsed() / 1000.0 : 0.0;
     const qreal bob = std::sin(seconds * 2.4) * 2.0;
 

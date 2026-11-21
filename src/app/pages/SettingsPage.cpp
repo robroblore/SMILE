@@ -132,6 +132,13 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
            "everything SMILE detects when a session starts."),
         debugToggle));
     connect(debugToggle, &QAbstractButton::toggled, &settings, &AppSettings::setDebugMode);
+    auto *hapticToggle = new ToggleSwitch;
+    hapticToggle->setChecked(settings.hapticFeedbackEnabled());
+    debugCard->body()->addWidget(new OptionRow(
+        tr("Simulate mouse haptics"),
+        tr("Log a simulated mouse pulse when a warning appears during a meeting."),
+        hapticToggle));
+    connect(hapticToggle, &QAbstractButton::toggled, &settings, &AppSettings::setHapticFeedbackEnabled);
     auto *openDebug = new QPushButton(tr("Open debug view"));
     openDebug->setIcon(Icons::icon(Icons::Icon::Bug, Theme::colors().text, 14));
     openDebug->setCursor(Qt::PointingHandCursor);

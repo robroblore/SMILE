@@ -62,6 +62,8 @@ public:
 
     bool debugMode() const;
     void setDebugMode(bool on);
+    bool hapticFeedbackEnabled() const;
+    void setHapticFeedbackEnabled(bool on);
 
     // The Training page's speech text, its mode and the structured sections
     QString speechText() const;

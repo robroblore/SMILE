@@ -26,6 +26,7 @@
 #include "companion/SmileyPainter.h"
 #include "core/AppSettings.h"
 #include "core/DemoTipSource.h"
+#include "core/HapticMouse.h"
 #include "core/LiveSignals.h"
 #include "core/SessionController.h"
 #include "sensors/CameraMonitor.h"
@@ -92,6 +93,13 @@ MainWindow::MainWindow(QWidget *parent)
         if (m_controller->mode() == SessionMode::Meeting && tip.severity == TipSeverity::Positive)
             return;
         m_companion->showTip(tip);
+    });
+    connect(m_companion, &CompanionWindow::liveTipPresented, this, [this](const Tip &tip) {
+        if (m_controller->isRunning() && m_controller->mode() == SessionMode::Meeting
+            && tip.severity == TipSeverity::Warning && tip.source != QLatin1String("demo")
+            && AppSettings::instance().hapticFeedbackEnabled()) {
+            HapticMouse::requestPulse(tip.category);
+        }
     });
     // Every tip, with its reason, goes to the debug log
     connect(m_controller, &SessionController::tipLogged, this, [](const Tip &tip) {

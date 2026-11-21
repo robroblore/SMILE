@@ -34,6 +34,8 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
     src/core/Plural.h
     src/core/LiveSignals.h
     src/core/LiveSignals.cpp
+    src/core/HapticMouse.h
+    src/core/HapticMouse.cpp
 
     # Local vision: on-device face tracking (YuNet via ONNX Runtime)
     src/vision/FaceDetector.h

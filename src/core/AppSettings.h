@@ -84,8 +84,10 @@ public:
     void setPhysicalHapticsEnabled(bool on);
     int hapticDurationSeconds() const;
     void setHapticDurationSeconds(int seconds);
-    int hapticStrength() const;
-    void setHapticStrength(int strength);
+    int hapticIntensity() const;
+    void setHapticIntensity(int intensity);
+    int hapticPulseIntervalMs() const;
+    void setHapticPulseIntervalMs(int milliseconds);
 
     // The Training page's speech text, its mode and the structured sections
     QString speechText() const;

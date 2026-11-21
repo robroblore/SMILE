@@ -48,7 +48,7 @@ public slots:
 
 signals:
     void liveTipPresented(const Tip &tip);
-    void liveTipsSnoozed();
+    void liveTipClosed();
     void openMainWindowRequested();
     void nextPointRequested();
     void endSessionRequested();
@@ -71,6 +71,7 @@ private:
     void popUp(const Tip &tip, bool preview);
     void setCurrentTip(const Tip &tip);
     void startLeaving();
+    void closeLiveTip();
     void onFrame();
     void onAppearFinished();
     void placeOnScreen();
@@ -91,6 +92,7 @@ private:
     int m_gapMs = 45000;
     bool m_sessionActive = false;
     bool m_livePresentationPending = false;
+    bool m_liveTipOnScreen = false;
 
     QVariantAnimation m_appear; // 0 hidden .. 1 fully shown
     QTimer m_frame;

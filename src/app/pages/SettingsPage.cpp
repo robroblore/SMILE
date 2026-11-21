@@ -195,14 +195,25 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     hapticDuration->setSuffix(tr(" s"));
     hapticDuration->setValue(settings.hapticDurationSeconds());
     addHapticSetting(tr("Vibration duration"),
-                     tr("Repeat once a second until the issue clears or this time limit is reached."),
+                     tr("Repeat while the warning is visible, until the issue clears or this time limit is reached."),
                      hapticDuration);
     connect(hapticDuration, &QSpinBox::valueChanged, &settings, &AppSettings::setHapticDurationSeconds);
-    auto *hapticStrength = new QComboBox;
-    hapticStrength->addItems({tr("Low"), tr("Medium"), tr("High")});
-    hapticStrength->setCurrentIndex(settings.hapticStrength());
-    addHapticSetting(tr("Vibration sensitivity"), tr("Adjust how strong each pulse feels."), hapticStrength);
-    connect(hapticStrength, &QComboBox::currentIndexChanged, &settings, &AppSettings::setHapticStrength);
+    auto *hapticIntensity = new QComboBox;
+    hapticIntensity->addItems({tr("Low · gentle tap"), tr("Medium · sharp pulse"), tr("High · multi-tap")});
+    hapticIntensity->setCurrentIndex(settings.hapticIntensity());
+    addHapticSetting(tr("Vibration intensity"),
+                     tr("Choose how noticeable each pulse feels."), hapticIntensity);
+    connect(hapticIntensity, &QComboBox::currentIndexChanged, &settings, &AppSettings::setHapticIntensity);
+    auto *hapticSpeed = new QComboBox;
+    hapticSpeed->addItem(tr("Slow · every 3 seconds"), 3000);
+    hapticSpeed->addItem(tr("Normal · every second"), 1000);
+    hapticSpeed->addItem(tr("Fast · twice a second"), 500);
+    hapticSpeed->setCurrentIndex(hapticSpeed->findData(settings.hapticPulseIntervalMs()));
+    addHapticSetting(tr("Vibration speed"),
+                     tr("Choose how often pulses repeat while a warning stays visible."), hapticSpeed);
+    connect(hapticSpeed, &QComboBox::currentIndexChanged, &settings, [hapticSpeed](int index) {
+        AppSettings::instance().setHapticPulseIntervalMs(hapticSpeed->itemData(index).toInt());
+    });
     auto *openDebug = new QPushButton(tr("Open debug view"));
     openDebug->setIcon(Icons::icon(Icons::Icon::Bug, Theme::colors().text, 14));
     openDebug->setCursor(Qt::PointingHandCursor);

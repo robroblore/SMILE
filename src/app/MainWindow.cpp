@@ -99,11 +99,11 @@ MainWindow::MainWindow(QWidget *parent)
             return; // the avatar is the other participant; tips go to the report
         m_companion->showTip(tip);
     });
-    m_hapticsTimer.setInterval(1000);
+    m_hapticsTimer.setInterval(AppSettings::instance().hapticPulseIntervalMs());
     m_hapticsTimer.setTimerType(Qt::PreciseTimer);
     connect(&m_hapticsTimer, &QTimer::timeout, this, &MainWindow::repeatHaptics);
     connect(m_companion, &CompanionClient::liveTipPresented, this, &MainWindow::notifyHaptics);
-    connect(m_companion, &CompanionClient::liveTipsSnoozed, this, &MainWindow::stopHaptics);
+    connect(m_companion, &CompanionClient::liveTipClosed, this, &MainWindow::stopHaptics);
     // Every tip, with its reason, goes to the debug log
     connect(m_controller, &SessionController::tipLogged, this, [](const Tip &tip) {
         LiveSignals::instance().addEvent(LiveSignals::Event::Tip, tip.text, tip.reason);
@@ -113,8 +113,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_timerTick->setInterval(500);
     connect(m_timerTick, &QTimer::timeout, this, &MainWindow::updateCompanionTimer);
     connect(&AppSettings::instance(), &AppSettings::changed, this, [this] {
-        if (!AppSettings::instance().physicalHapticsEnabled())
+        const auto &settings = AppSettings::instance();
+        if (!settings.physicalHapticsEnabled())
             stopHaptics();
+        if (m_hapticsTimer.interval() != settings.hapticPulseIntervalMs())
+            m_hapticsTimer.setInterval(settings.hapticPulseIntervalMs());
         m_companion->reloadSettings();
         updateCompanionTimer();
     });
@@ -184,7 +187,7 @@ void MainWindow::notifyHaptics(const Tip &tip)
         warning.sinceFirstPulse.start();
         m_hapticWarnings.insert(key, warning);
     }
-    HapticMouse::playPulse(tip.category, settings.hapticStrength());
+    HapticMouse::playPulse(tip.category, settings.hapticIntensity());
     if (!m_hapticWarnings.isEmpty())
         m_hapticsTimer.start();
 }
@@ -211,7 +214,7 @@ void MainWindow::repeatHaptics()
     if (m_hapticWarnings.isEmpty())
         m_hapticsTimer.stop();
     if (activeCategory)
-        HapticMouse::playPulse(*activeCategory, settings.hapticStrength(), false);
+        HapticMouse::playPulse(*activeCategory, settings.hapticIntensity(), false);
 }
 
 void MainWindow::stopHaptics()

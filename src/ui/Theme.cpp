@@ -126,6 +126,17 @@ QLineEdit:hover, QAbstractSpinBox:hover { background: @controlHover; }
 QLineEdit:focus, QAbstractSpinBox:focus { background: @card; border-bottom: 2px solid @accent; }
 QLineEdit:disabled, QAbstractSpinBox:disabled { color: @textDisabled; }
 
+QComboBox {
+    background: @control; border: 1px solid @controlBorder; border-bottom: 1px solid @controlBorderBottom;
+    border-radius: 5px; padding: 5px 10px; min-height: 20px;
+}
+QComboBox:hover { background: @controlHover; }
+QComboBox:disabled { color: @textDisabled; }
+QComboBox::drop-down { border: none; width: 24px; }
+QComboBox QAbstractItemView {
+    background: @flyout; border: 1px solid @cardBorder; border-radius: 6px; padding: 4px;
+    selection-background-color: @subtleHover; selection-color: @text; outline: none;
+}
 QProgressBar { background: @track; border: none; border-radius: 2px; max-height: 4px; min-height: 4px; }
 QProgressBar::chunk { background: @accent; border-radius: 2px; }
 QProgressBar[state="over"]::chunk { background: @critical; }

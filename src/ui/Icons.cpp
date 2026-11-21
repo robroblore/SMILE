@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
+#include <QtMath>
 
 namespace Icons {
 
@@ -95,6 +96,46 @@ void paint(QPainter &p, const QRectF &rect, Icon icon, const QColor &color)
         eye.cubicTo(12, 12.5, 4, 12.5, 1.5, 8);
         p.drawPath(eye);
         p.drawEllipse(QPointF(8, 8), 2.2, 2.2);
+        break;
+    }
+    case Icon::Settings: {
+        // Gear: ring with eight teeth
+        for (int i = 0; i < 8; ++i) {
+            const qreal a = qDegreesToRadians(i * 45.0);
+            p.drawLine(QPointF(8 + std::cos(a) * 4.6, 8 + std::sin(a) * 4.6),
+                       QPointF(8 + std::cos(a) * 6.6, 8 + std::sin(a) * 6.6));
+        }
+        p.drawEllipse(QPointF(8, 8), 4.6, 4.6);
+        p.drawEllipse(QPointF(8, 8), 1.8, 1.8);
+        break;
+    }
+    case Icon::Camera: {
+        p.drawRoundedRect(QRectF(1.5, 4.5, 13, 9), 2, 2);
+        QPainterPath bump;
+        bump.moveTo(5, 4.5);
+        bump.lineTo(6.2, 2.8);
+        bump.lineTo(9.8, 2.8);
+        bump.lineTo(11, 4.5);
+        p.drawPath(bump);
+        p.drawEllipse(QPointF(8, 9), 2.6, 2.6);
+        break;
+    }
+    case Icon::Mic:
+        p.drawRoundedRect(QRectF(5.75, 1.5, 4.5, 8), 2.25, 2.25);
+        p.drawArc(QRectF(3.5, 4, 9, 8), 200 * 16, 140 * 16);
+        p.drawLine(QPointF(8, 12), QPointF(8, 14.5));
+        p.drawLine(QPointF(5.5, 14.5), QPointF(10.5, 14.5));
+        break;
+    case Icon::Sparkle: {
+        QPainterPath star;
+        star.moveTo(7, 1.5);
+        star.quadTo(7.6, 6.4, 12.5, 7);
+        star.quadTo(7.6, 7.6, 7, 12.5);
+        star.quadTo(6.4, 7.6, 1.5, 7);
+        star.quadTo(6.4, 6.4, 7, 1.5);
+        p.drawPath(star);
+        p.drawLine(QPointF(12.5, 11), QPointF(12.5, 14.5));
+        p.drawLine(QPointF(10.75, 12.75), QPointF(14.25, 12.75));
         break;
     }
     }

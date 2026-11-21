@@ -26,13 +26,14 @@ jobs:
       - name: Install system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl-dev libegl-dev libfuse2 \
+          sudo apt-get install -y ninja-build libgl-dev libegl-dev libfuse2 libpulse0 \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
 
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
+          modules: qtmultimedia
           cache: true
 
       - name: Build
@@ -52,6 +53,9 @@ jobs:
           wget -q $base/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy*.AppImage
           export QMAKE="$(command -v qmake6 || command -v qmake)"
+          # Qt Multimedia uses its bundled FFmpeg backend; drop the GStreamer
+          # plugin so linuxdeploy doesn't need (or bundle) GStreamer.
+          rm -f "$QT_ROOT_DIR"/plugins/multimedia/libgstreamermediaplugin.so
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage \
             --desktop-file AppDir/usr/share/applications/smile.desktop \
             --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/smile.svg
@@ -71,6 +75,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
+          modules: qtmultimedia
           cache: true
 
       - name: Build
@@ -102,6 +107,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.11.3'
+          modules: qtmultimedia
           cache: true
 
       - name: Build

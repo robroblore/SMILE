@@ -97,6 +97,22 @@ Industry professionals heading into meetings where how they come across matters 
 
 ---
 
+## AI coach setup
+
+SMILE's smart features (smile, posture and eye-contact tips, filler-word counting, the Pre-Meet camera check and written feedback) use [Together AI](https://together.ai). Timing, lighting and monologue detection work without it.
+
+The key is **never** built into the app or committed to git. SMILE looks for it in this order:
+
+1. **Settings → AI coach**: paste it in the app. It's stored only on that computer.
+2. The `TOGETHER_API_KEY` environment variable.
+3. A `.env` file in the working directory or next to the app (copy `.env.example` to `.env`). `.env` is git-ignored.
+
+Models used: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera snapshots), `openai/whisper-large-v3` (speech) and `openai/gpt-oss-120b` (feedback). Typical cost is about 15 cents per hour of coaching.
+
+**Privacy:** while a session runs, a small snapshot is sent every 10 s (adjustable) and speech clips every ~25 s, over HTTPS. Nothing is recorded to disk, and SMILE never changes your video feed. Switch **Analyse with AI** off in Settings to keep everything local.
+
+---
+
 ## Roadmap (draft)
 
 - [ ] **MVP**: webcam posture and smile detection with a basic companion overlay

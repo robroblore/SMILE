@@ -113,6 +113,11 @@ void SessionController::stop()
     report.totalSeconds = total;
     report.points = m_active;
     report.tips = m_log;
+    for (TipSource *source : std::as_const(m_sources)) {
+        const QVariantMap data = source->reportData();
+        if (!data.isEmpty())
+            report.sources.insert(source->name(), data);
+    }
 
     emit runningChanged(false);
     emit finished(report);

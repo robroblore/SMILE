@@ -19,12 +19,17 @@ public:
 signals:
     void previewTipRequested();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
 private:
+    void refreshSensors();
     void refreshAgenda();
     void onRunningChanged(bool running);
 
     SessionController *m_controller;
     QVBoxLayout *m_agendaRows;
     QWidget *m_idle;
+    class QLabel *m_sensors;
     SessionRunWidget *m_run;
 };

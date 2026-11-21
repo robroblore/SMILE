@@ -189,6 +189,96 @@ void SmileyBadge::paintEvent(QPaintEvent *)
     SmileyPainter::paint(p, QRectF(rect()).adjusted(1, 1, -1, -1), face);
 }
 
+// --------------------------------------------------------------- CameraPreview
+
+CameraPreview::CameraPreview(QWidget *parent)
+    : QWidget(parent)
+{
+    setMinimumSize(240, 160);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+}
+
+void CameraPreview::setFrame(const QImage &frame)
+{
+    m_frame = frame;
+    update();
+}
+
+void CameraPreview::setMessage(const QString &message)
+{
+    m_message = message;
+    if (!message.isEmpty())
+        m_frame = QImage();
+    update();
+}
+
+void CameraPreview::paintEvent(QPaintEvent *)
+{
+    const Theme::Colors &c = Theme::colors();
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+    const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    QPainterPath clip;
+    clip.addRoundedRect(r, 8, 8);
+    p.setClipPath(clip);
+    p.fillRect(r, c.dark ? QColor(0x1A, 0x1A, 0x1A) : QColor(0xE9, 0xE9, 0xE9));
+
+    if (!m_frame.isNull()) {
+        // Aspect-fill
+        const QSizeF img = m_frame.size();
+        const qreal scale = qMax(r.width() / img.width(), r.height() / img.height());
+        const QSizeF drawn = img * scale;
+        const QRectF target(r.center().x() - drawn.width() / 2, r.center().y() - drawn.height() / 2, drawn.width(),
+                            drawn.height());
+        p.drawImage(target, m_frame);
+    } else {
+        Icons::paint(p, QRectF(r.center().x() - 14, r.center().y() - 30, 28, 28), Icons::Icon::Camera,
+                     c.textSecondary);
+        p.setPen(c.textSecondary);
+        p.drawText(r.adjusted(16, 10, -16, 0), Qt::AlignCenter | Qt::TextWordWrap,
+                   m_message.isEmpty() ? tr("Camera is off") : m_message);
+    }
+    p.setClipping(false);
+    p.setPen(QPen(c.cardBorder, 1));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(r, 8, 8);
+}
+
+// ------------------------------------------------------------------ LevelMeter
+
+LevelMeter::LevelMeter(QWidget *parent)
+    : QWidget(parent)
+{
+    setFixedHeight(6);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+}
+
+void LevelMeter::setLevel(qreal level)
+{
+    m_level = qBound<qreal>(0.0, level, 1.0);
+    update();
+}
+
+void LevelMeter::setSpeaking(bool speaking)
+{
+    m_speaking = speaking;
+    update();
+}
+
+void LevelMeter::paintEvent(QPaintEvent *)
+{
+    const Theme::Colors &c = Theme::colors();
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    const QRectF r = QRectF(rect());
+    p.setBrush(c.track);
+    p.drawRoundedRect(r, 3, 3);
+    p.setBrush(m_speaking ? c.success : c.accent);
+    p.drawRoundedRect(QRectF(r.left(), r.top(), r.width() * m_level, r.height()), 3, 3);
+}
+
 // ------------------------------------------------------------------------ Card
 
 Card::Card(QWidget *parent)

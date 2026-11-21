@@ -22,6 +22,10 @@ enum class Icon {
     Next,
     Stop,
     Eye,
+    Settings,  // gear
+    Camera,
+    Mic,
+    Sparkle,   // AI
 };
 
 void paint(QPainter &painter, const QRectF &rect, Icon icon, const QColor &color);

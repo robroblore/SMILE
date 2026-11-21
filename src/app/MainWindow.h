@@ -3,7 +3,10 @@
 #include <QList>
 #include <QMainWindow>
 
+class AiClient;
+class CameraMonitor;
 class CompanionWindow;
+class MicrophoneMonitor;
 class NavButton;
 class QStackedWidget;
 class QSystemTrayIcon;
@@ -19,7 +22,7 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
-    enum Page { TrainingPageIndex, PreMeetPageIndex, MeetPageIndex, PostMeetPageIndex };
+    enum Page { TrainingPageIndex, PreMeetPageIndex, MeetPageIndex, PostMeetPageIndex, SettingsPageIndex };
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -33,6 +36,9 @@ private:
     void previewTip();
 
     SessionController *m_controller;
+    AiClient *m_ai;
+    CameraMonitor *m_camera;
+    MicrophoneMonitor *m_mic;
     CompanionWindow *m_companion; // top-level window, owned here
     QStackedWidget *m_pages;
     QList<NavButton *> m_nav;

@@ -16,16 +16,25 @@
 #include "app/pages/MeetPage.h"
 #include "app/pages/PostMeetPage.h"
 #include "app/pages/PreMeetPage.h"
+#include "app/pages/SettingsPage.h"
 #include "app/pages/TrainingPage.h"
+#include "ai/AiClient.h"
+#include "ai/SpeechTipSource.h"
+#include "ai/VisionTipSource.h"
 #include "companion/CompanionWindow.h"
 #include "companion/SmileyPainter.h"
 #include "core/DemoTipSource.h"
 #include "core/SessionController.h"
+#include "sensors/CameraMonitor.h"
+#include "sensors/MicrophoneMonitor.h"
 #include "ui/Widgets.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_controller(new SessionController(this))
+    , m_ai(new AiClient(this))
+    , m_camera(new CameraMonitor(this))
+    , m_mic(new MicrophoneMonitor(this))
     , m_companion(new CompanionWindow)
     , m_pages(new QStackedWidget(this))
 {
@@ -33,18 +42,22 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1080, 720);
     setMinimumSize(820, 560);
 
-    // Tip sources. Future AI modules (posture, smile, speech) are added here.
+    // Tip sources: camera (expression, posture, appearance), microphone
+    // (monologues, filler words, pace) and the optional demo source.
+    m_controller->addTipSource(new VisionTipSource(m_camera, m_ai));
+    m_controller->addTipSource(new SpeechTipSource(m_mic, m_ai));
     auto *demo = new DemoTipSource;
     m_controller->addTipSource(demo);
 
     auto *training = new TrainingPage(m_controller);
-    auto *preMeet = new PreMeetPage;
+    auto *preMeet = new PreMeetPage(m_camera, m_ai);
     auto *meet = new MeetPage(m_controller, demo);
-    auto *postMeet = new PostMeetPage;
+    auto *postMeet = new PostMeetPage(m_ai);
     m_pages->addWidget(training);
     m_pages->addWidget(preMeet);
     m_pages->addWidget(meet);
     m_pages->addWidget(postMeet);
+    m_pages->addWidget(new SettingsPage(m_camera, m_mic, m_ai));
 
     auto *root = new QWidget(this);
     root->setObjectName(QStringLiteral("root"));
@@ -137,6 +150,10 @@ QWidget *MainWindow::buildNavigation()
     connect(group, &QButtonGroup::idClicked, this, [this](int id) { showPage(Page(id)); });
 
     v->addStretch();
+    auto *settings = new NavButton(Icons::Icon::Settings, tr("Settings"));
+    group->addButton(settings, SettingsPageIndex);
+    m_nav.append(settings);
+    v->addWidget(settings);
     auto *about = new NavButton(Icons::Icon::Info, tr("About"));
     about->setCheckable(false);
     connect(about, &QAbstractButton::clicked, this, &MainWindow::showAbout);

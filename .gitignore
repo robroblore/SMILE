@@ -15,3 +15,11 @@ AppDir/
 CMakeLists.txt.user*
 compile_commands.json
 .DS_Store
+
+# Local secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Tool logs
+aqtinstall.log

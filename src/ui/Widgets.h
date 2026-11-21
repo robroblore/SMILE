@@ -2,6 +2,7 @@
 
 #include <QAbstractButton>
 #include <QFrame>
+#include <QImage>
 #include <QVariantAnimation>
 
 #include "ui/Icons.h"
@@ -70,6 +71,42 @@ protected:
 
 private:
     qreal m_smile;
+};
+
+// Shows the latest camera frame with rounded corners (aspect-fill).
+class CameraPreview : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit CameraPreview(QWidget *parent = nullptr);
+    void setFrame(const QImage &frame);
+    void setMessage(const QString &message); // shown when there is no frame
+    QSize sizeHint() const override { return {360, 240}; }
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    QImage m_frame;
+    QString m_message;
+};
+
+// Horizontal input level meter (microphone).
+class LevelMeter : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit LevelMeter(QWidget *parent = nullptr);
+    void setLevel(qreal level);
+    void setSpeaking(bool speaking);
+    QSize sizeHint() const override { return {200, 6}; }
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    qreal m_level = 0;
+    bool m_speaking = false;
 };
 
 // A rounded "card" surface with a vertical layout.

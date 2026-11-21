@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QList>
+#include <QVariantMap>
 
 #include "core/Agenda.h"
 #include "core/Tip.h"
@@ -19,4 +20,5 @@ struct SessionReport {
     int totalSeconds = 0;
     Agenda points;
     QList<Tip> tips;
+    QVariantMap sources; // TipSource name -> its reportData()
 };

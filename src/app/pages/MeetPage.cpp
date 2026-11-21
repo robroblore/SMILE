@@ -7,6 +7,7 @@
 #include <QVBoxLayout>
 
 #include "app/SessionRunWidget.h"
+#include "core/AppSettings.h"
 #include "core/SessionController.h"
 #include "core/TimeFormat.h"
 #include "core/TipSource.h"
@@ -39,6 +40,7 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
     , m_controller(controller)
     , m_agendaRows(new QVBoxLayout)
     , m_idle(new QWidget)
+    , m_sensors(Ui::label(QString(), "secondary"))
     , m_run(new SessionRunWidget(controller))
 {
     // Start / live card
@@ -62,6 +64,9 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
     idleLayout->addWidget(start);
     sessionCard->body()->addWidget(m_idle);
     sessionCard->body()->addWidget(m_run);
+    m_sensors->setWordWrap(true);
+    m_sensors->setTextFormat(Qt::RichText);
+    sessionCard->body()->addWidget(m_sensors);
 
     // Agenda card
     auto *agendaCard = new Card(tr("Agenda"));
@@ -88,7 +93,7 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
     connect(demo, &QAbstractButton::toggled, this, [demoSource](bool on) { demoSource->setEnabled(on); });
     tipsCard->body()->addWidget(new OptionRow(
         tr("Demo tips"),
-        tr("Sample posture, smile and speech tips, until the camera and microphone modules are built."), demo));
+        tr("Random sample tips, for trying out the companion without a camera or microphone."), demo));
 
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
@@ -110,8 +115,34 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
     connect(m_controller, &SessionController::currentPointChanged, this, &MeetPage::refreshAgenda);
     connect(m_controller, &SessionController::runningChanged, this, &MeetPage::onRunningChanged);
 
+    connect(&AppSettings::instance(), &AppSettings::changed, this, &MeetPage::refreshSensors);
+
     refreshAgenda();
+    refreshSensors();
     onRunningChanged(false);
+}
+
+void MeetPage::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    refreshSensors();
+}
+
+void MeetPage::refreshSensors()
+{
+    const AppSettings &s = AppSettings::instance();
+    const Theme::Colors &c = Theme::colors();
+    auto chip = [&](const QString &name, bool on) {
+        return QStringLiteral("<span style='color:%1'>%2 %3</span>")
+            .arg(Theme::css(on ? c.success : c.textSecondary), on ? QStringLiteral("●") : QStringLiteral("○"), name);
+    };
+    const bool ai = !s.apiKey().isEmpty() && s.cloudAnalysis();
+    QString text = chip(tr("Camera"), s.useCamera()) + QStringLiteral("&nbsp;&nbsp;&nbsp;")
+                   + chip(tr("Microphone"), s.useMicrophone()) + QStringLiteral("&nbsp;&nbsp;&nbsp;")
+                   + chip(tr("AI coach"), ai);
+    if (!ai)
+        text += QStringLiteral("<br>") + tr("Add an AI key in Settings for smile, posture and filler-word tips.").toHtmlEscaped();
+    m_sensors->setText(text);
 }
 
 void MeetPage::refreshAgenda()

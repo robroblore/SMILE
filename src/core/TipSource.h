@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QVariantMap>
 
 #include "core/Tip.h"
 
@@ -20,6 +21,9 @@ public:
     // Called by SessionController when a session starts or stops.
     virtual void start() = 0;
     virtual void stop() = 0;
+
+    // Numbers and text for the Post-Meet report, collected after stop().
+    virtual QVariantMap reportData() const { return {}; }
 
     bool isEnabled() const { return m_enabled; }
     void setEnabled(bool enabled) { m_enabled = enabled; }

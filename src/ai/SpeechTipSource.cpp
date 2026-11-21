@@ -376,9 +376,8 @@ bool SpeechTipSource::isWarningActive(const QString &warningId) const
 void SpeechTipSource::tip(const QString &key, TipCategory category, TipSeverity severity, const QString &text,
                           const QString &reason)
 {
-    const int cooldown = AppSettings::instance().thresholds().repeatCooldownSeconds;
     QElapsedTimer &last = m_lastTip[key];
-    if (last.isValid() && last.elapsed() < cooldown * 1000LL)
+    if (last.isValid() && last.elapsed() < repeatCooldownMs(key))
         return;
     last.restart();
     Tip t;

@@ -270,7 +270,7 @@ void SimulationEngine::onBehaviourTip(const Tip &tip)
         {QStringLiteral("covered"), 1},     {QStringLiteral("noface"), 1},   {QStringLiteral("restless"), 2},
         {QStringLiteral("hands"), 2},       {QStringLiteral("hands-inappropriate"), 2},
         {QStringLiteral("posture"), 2},     {QStringLiteral("uncomfortable"), 2}, {QStringLiteral("touching"), 2},
-        {QStringLiteral("cold"), 3},        {QStringLiteral("flat"), 3},     {QStringLiteral("eyes"), 3},
+        {QStringLiteral("cold"), 3},        {QStringLiteral("flat"), 3},     {QStringLiteral("nosmile"), 3},  {QStringLiteral("eyes"), 3},
         {QStringLiteral("notes"), 3},       {QStringLiteral("fillers"), 3},
     };
     static const QHash<QString, QStringList> lines = {
@@ -284,6 +284,7 @@ void SimulationEngine::onBehaviourTip(const Tip &tip)
         {QStringLiteral("touching"), {tr("You keep touching your face, are you nervous?")}},
         {QStringLiteral("cold"), {tr("You look a little tense. Relax, it's just a conversation.")}},
         {QStringLiteral("flat"), {tr("You seem a bit flat, are you enjoying this?")}},
+        {QStringLiteral("nosmile"), {tr("You look very serious. A smile wouldn't hurt.")}},
         {QStringLiteral("eyes"), {tr("Are you still with me? You seem to be looking elsewhere.")}},
         {QStringLiteral("notes"), {tr("Try not to read; just talk to me.")}},
         {QStringLiteral("fillers"), {tr("Take your time, there's no need for all the ums.")}},

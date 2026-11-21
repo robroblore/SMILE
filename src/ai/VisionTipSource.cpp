@@ -108,6 +108,8 @@ void VisionTipSource::start()
     m_cloudHistory.clear();
     m_coldSince = m_flatSince = m_sideSince = m_notesSince = m_faceMissingSince = m_postureSince = m_restlessSince = -1;
     m_coveredSince = -1;
+    m_sideSeen = m_notesSeen = m_missingSeen = m_coveredSeen = m_lastFoundAt = -1;
+    m_noSmileMs = 0;
     m_negativeEma = m_happyEma = 0;
     m_neutralEma = 1;
     m_coveredMs = m_smileScoreKnownMs = 0;
@@ -190,8 +192,17 @@ void VisionTipSource::onFace(const FaceFrame &face)
 {
     if (!m_running)
         return;
+    const bool wasFound = m_face.found;
     m_face = face;
     m_lastFaceAt = now();
+    if (face.found) {
+        m_lastFoundYaw = face.yaw;
+        m_lastFoundPitch = face.pitch;
+        m_lastFoundAt = now();
+    } else if (wasFound) {
+        // Lost the face: covered, turned away or gone? Ask the cloud straight away
+        requestCloud(tr("the face tracker lost your face"));
+    }
     LiveSignals::Vision &v = LiveSignals::instance().vision;
     v.face = face;
     v.cameraFps = m_camera->framesPerSecond();
@@ -223,7 +234,13 @@ void VisionTipSource::onFace(const FaceFrame &face)
 
     // Movement: how far the face centre travels, in face heights per second
     m_faceHeight = 0.9f * m_faceHeight + 0.1f * qMax(0.05f, float(face.box.height()));
-    m_positions.append({now(), face.box.center()});
+    // Ignore detector glitches: a face can't jump a quarter of its height within a few
+    // milliseconds. A real move is accepted once it's still there a moment later.
+    const QPointF centre = face.box.center();
+    const bool glitch = !m_positions.isEmpty() && now() - m_positions.last().first < 150
+                        && QLineF(m_positions.last().second, centre).length() > 0.25 * qMax(0.05f, m_faceHeight);
+    if (!glitch)
+        m_positions.append({now(), centre});
     while (!m_positions.isEmpty() && now() - m_positions.first().first > 4000)
         m_positions.removeFirst();
 
@@ -412,9 +429,15 @@ void VisionTipSource::onTick()
 
     // --- Where is the user looking? 0 camera, 1 notes (down), 2 side/away
     int gaze = -1;
+    // The tracker loses a face turned far away: that's looking away, not a covered face
+    const bool turnedAway = localFresh && face == 0 && m_lastFoundAt >= 0 && nowMs - m_lastFoundAt < 8000
+                            && (std::abs(m_lastFoundYaw) >= kYawLimit * 0.9f
+                                || m_lastFoundPitch - m_pitchBaseline <= -kPitchDownLimit * 0.9f);
     if (localFresh && face == 1) {
         const float down = m_face.pitch - m_pitchBaseline;
-        gaze = std::abs(m_face.yaw) >= kYawLimit ? 2 : (down >= kPitchDownLimit ? 1 : 0);
+        gaze = std::abs(m_face.yaw) >= kYawLimit || down <= -kPitchDownLimit ? 2 : (down >= kPitchDownLimit ? 1 : 0);
+    } else if (turnedAway) {
+        gaze = 2;
     } else if (fresh && face == 1) {
         const QString g = m_cloud.value(QLatin1String("gaze")).toString(QStringLiteral("camera"));
         gaze = (g == QLatin1String("camera") || g == QLatin1String("screen")) ? 0 : (g == QLatin1String("notes_down") ? 1 : 2);
@@ -497,13 +520,23 @@ void VisionTipSource::onTick()
             since = -1;
         return since >= 0 ? nowMs - since : 0;
     };
+    // Like track(), but a short flicker (tracker noise, one odd cloud answer) doesn't restart the clock
+    auto steady = [nowMs](qint64 &since, qint64 &seen, bool active, qint64 graceMs) {
+        if (active) {
+            if (since < 0)
+                since = nowMs;
+            seen = nowMs;
+        } else if (since >= 0 && nowMs - seen > graceMs) {
+            since = -1;
+        }
+        return since >= 0 ? nowMs - since : 0;
+    };
     const bool coldNow = (expression == QLatin1String("tense") || expression == QLatin1String("unapproachable"))
                          && (localExpr || exprConf >= kMinConfidence);
     const bool flatNow = expression == QLatin1String("neutral_flat") && exprConf >= kMinConfidence;
-    const qint64 missing = track(m_faceMissingSince, face == 0);
-    const qint64 side = track(m_sideSince, gaze == 2);
     const qint64 notesBefore = m_notesSince >= 0 ? nowMs - m_notesSince : 0;
-    const qint64 notes = track(m_notesSince, gaze == 1);
+    const qint64 side = steady(m_sideSince, m_sideSeen, gaze == 2, 800);
+    const qint64 notes = steady(m_notesSince, m_notesSeen, gaze == 1, 800);
     if (gaze != 1 && notesBefore > 600)
         ++m_notesGlances;
     const qint64 cold = track(m_coldSince, coldNow);
@@ -512,13 +545,19 @@ void VisionTipSource::onTick()
     // Face covered: the cloud sees a hand/object over it, or the local tracker
     // lost the face while the cloud still sees the person
     const bool cloudCovered = fresh && m_cloud.value(QLatin1String("face_covered")).toBool();
-    const bool trackerLost = localFresh && face == 0 && fresh && m_cloud.value(QLatin1String("face_visible")).toBool(true);
-    const qint64 covered = track(m_coveredSince, cloudCovered || trackerLost);
+    const bool trackerLost = localFresh && face == 0 && !turnedAway && fresh && m_cloud.value(QLatin1String("face_visible")).toBool(true);
+    const bool coveredNow = cloudCovered || trackerLost;
+    const bool wasCovered = m_coveredSince >= 0;
+    steady(m_coveredSince, m_coveredSeen, coveredNow, 2500);
+    // Once the cloud confirms, count from the moment the tracker lost the face
+    if (!wasCovered && trackerLost && m_lastFoundAt >= 0 && nowMs - m_lastFoundAt < 8000)
+        m_coveredSince = qMin(m_coveredSince, m_lastFoundAt);
+    const qint64 covered = m_coveredSince >= 0 ? nowMs - m_coveredSince : 0;
+    const qint64 missing = steady(m_faceMissingSince, m_missingSeen, face == 0 && !coveredNow && !turnedAway, 1000);
     v.faceMissingSeconds = int(missing / 1000);
     v.lookAwaySeconds = int(qMax(side, notes) / 1000);
-    v.noSmileSeconds = int(qMax(cold, flat) / 1000);
 
-    if (covered >= t.faceCoveredSeconds * 1000LL) {
+    if (covered >= t.faceCoveredSeconds * 1000LL && nowMs - m_coveredSeen < 1000) {
         tip(QStringLiteral("covered"), TipCategory::Appearance, TipSeverity::Warning, tr("Your face is covered."),
             cloudCovered ? tr("The cloud AI sees something over your face (%1). Covered for %2 s (limit %3 s).")
                                .arg(m_cloud.value(QLatin1String("hands_note")).toString())
@@ -529,8 +568,9 @@ void VisionTipSource::onTick()
                                .arg(secs(covered))
                                .arg(t.faceCoveredSeconds));
         note(QStringLiteral("covered"), tr("Face covered for %1 s").arg(secs(covered)));
+        m_coveredSince = nowMs; // count again from here if it stays covered
     }
-    if (missing >= t.faceMissingSeconds * 1000LL)
+    if (missing >= t.faceMissingSeconds * 1000LL && face == 0)
         tip(QStringLiteral("noface"), TipCategory::Appearance, TipSeverity::Warning, tr("I can't see your face. Check your camera framing."),
             localFresh ? tr("The local face tracker (15 checks a second) has found no face for %1 s (limit %2 s).")
                              .arg(secs(missing)).arg(t.faceMissingSeconds)
@@ -538,7 +578,7 @@ void VisionTipSource::onTick()
 
     // Eye contact, in context: side looks are flagged after the limit; looking
     // down at notes is allowed for much longer.
-    if (side >= t.lookAwaySeconds * 1000LL) {
+    if (side >= t.lookAwaySeconds * 1000LL && gaze == 2) {
         tip(QStringLiteral("eyes"), TipCategory::Expression, TipSeverity::Info, tr("Bring your eyes back to the camera."),
             tr("You've been looking to the side for %1 s (limit %2 s; brief glances are ignored). Head yaw %3, limit ±%4.")
                 .arg(secs(side)).arg(t.lookAwaySeconds).arg(m_face.yaw, 0, 'f', 2).arg(kYawLimit, 0, 'f', 2));
@@ -546,7 +586,7 @@ void VisionTipSource::onTick()
         m_sideSince = nowMs;
     }
     const qint64 notesLimit = qMax<qint64>(12000, t.lookAwaySeconds * 3000LL);
-    if (notes >= notesLimit) {
+    if (notes >= notesLimit && gaze == 1) {
         tip(QStringLiteral("notes"), TipCategory::Expression, TipSeverity::Info,
             tr("Look up from your notes and connect with the camera."),
             tr("Looking down for %1 s. Reading notes is fine, but after %2 s it starts to feel like reading aloud.")
@@ -572,14 +612,24 @@ void VisionTipSource::onTick()
         note(QStringLiteral("expression"), tr("Looked %1 for %2 s").arg(pretty(expression)).arg(secs(cold)));
         m_coldSince = nowMs;
     }
-    if (flat >= t.noSmileSeconds * 2000LL) {
-        tip(QStringLiteral("flat"), TipCategory::Expression, TipSeverity::Info,
-            tr("A small smile now and then makes you more approachable."),
-            tr("Your expression has looked blank (not just calm) for %1 s (limit %2 s, confidence %3). A relaxed neutral face "
-               "is fine and never flagged.")
-                .arg(secs(flat)).arg(t.noSmileSeconds * 2).arg(exprConf, 0, 'f', 2));
-        m_flatSince = nowMs;
+    // Not smiling for a long time: counted only while you're on camera, reset by any smile
+    if (face == 1 && smiling == 0)
+        m_noSmileMs += kTickMs;
+    else if (smiling == 1)
+        m_noSmileMs = 0;
+    v.noSmileSeconds = int(m_noSmileMs / 1000);
+    const qint64 noSmileLimit = t.noSmileSeconds * 2000LL;
+    if (m_noSmileMs >= noSmileLimit) {
+        tip(QStringLiteral("nosmile"), TipCategory::Expression, TipSeverity::Info, tr("Try smiling a little more."),
+            tr("No smile for %1 s on camera (limit %2 s). %3")
+                .arg(m_noSmileMs / 1000)
+                .arg(noSmileLimit / 1000)
+                .arg(localExpr ? tr("Smile reading from the expression model on your computer: %1.").arg(m_happyEma, 0, 'f', 2)
+                               : tr("Smile reading from the cloud AI.")));
+        note(QStringLiteral("expression"), tr("No smile for %1 s").arg(m_noSmileMs / 1000));
+        m_noSmileMs = 0;
     }
+    Q_UNUSED(flat);
 
     if (restless >= 6000) {
         tip(QStringLiteral("restless"), TipCategory::Posture, TipSeverity::Info,
@@ -687,9 +737,8 @@ bool VisionTipSource::isWarningActive(const QString &warningId) const
 void VisionTipSource::tip(const QString &key, TipCategory category, TipSeverity severity, const QString &text,
                           const QString &reason)
 {
-    const int cooldown = AppSettings::instance().thresholds().repeatCooldownSeconds;
     QElapsedTimer &last = m_lastTip[key];
-    if (last.isValid() && last.elapsed() < cooldown * 1000LL)
+    if (last.isValid() && last.elapsed() < repeatCooldownMs(key))
         return;
     last.restart();
 

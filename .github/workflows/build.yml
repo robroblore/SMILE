@@ -1,0 +1,136 @@
+name: Build
+
+# Builds SMILE for Linux, Windows and macOS on every push to main and every
+# pull request. Pushing a tag like v0.1.0 also publishes a GitHub Release with
+# the three packages attached.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create releases on tags
+
+env:
+  QT_VERSION: '6.8.3'
+
+jobs:
+  linux:
+    name: Linux (AppImage)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl-dev libegl-dev libfuse2 \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build
+          DESTDIR="$PWD/AppDir" cmake --install build
+
+      - name: Package AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          LDAI_OUTPUT: SMILE-linux-x86_64.AppImage
+          OUTPUT: SMILE-linux-x86_64.AppImage
+        run: |
+          base=https://github.com/linuxdeploy
+          wget -q $base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q $base/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+          export QMAKE="$(command -v qmake6 || command -v qmake)"
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage \
+            --desktop-file AppDir/usr/share/applications/smile.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/smile.svg
+          ls -la *.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SMILE-linux
+          path: SMILE-linux-x86_64.AppImage
+
+  windows:
+    name: Windows (zip)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+
+      - name: Build
+        run: |
+          cmake -S . -B build
+          cmake --build build --config Release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/SMILE | Out-Null
+          Copy-Item build/Release/SMILE.exe dist/SMILE/
+          windeployqt --release --no-translations --no-system-d3d-compiler --no-opengl-sw dist/SMILE/SMILE.exe
+          Compress-Archive -Path dist/SMILE -DestinationPath SMILE-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SMILE-windows
+          path: SMILE-windows-x64.zip
+
+  macos:
+    name: macOS (dmg, universal)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+          cmake --build build
+
+      - name: Package
+        run: |
+          macdeployqt build/SMILE.app
+          # Not notarised: ad-hoc sign so it launches on Apple Silicon (right-click > Open the first time).
+          codesign --force --deep --sign - build/SMILE.app
+          hdiutil create -volname SMILE -srcfolder build/SMILE.app -ov -format UDZO SMILE-macos-universal.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SMILE-macos
+          path: SMILE-macos-universal.dmg
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*
+          generate_release_notes: true

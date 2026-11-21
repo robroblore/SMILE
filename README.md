@@ -67,7 +67,7 @@ Industry professionals heading into meetings where how they come across matters 
        │ live cues                            │ session data
  ┌─────▼──────────────┐              ┌────────▼─────────────────────┐
  │  Companion UI      │              │  Python AI layer             │
- │  (Qt / ImGui)      │              │  • Speech-to-text (Whisper)  │
+ │  (Qt Widgets)      │              │  • Speech-to-text (Whisper)  │
  │  overlay tips      │◄─────────────┤  • Agenda/point matching     │
  └────────────────────┘   summaries  │  • LLM API for feedback      │
                                      └──────────────────────────────┘
@@ -98,6 +98,7 @@ Industry professionals heading into meetings where how they come across matters 
 
 ## Roadmap (draft)
 
+- [x] App skeleton: main window, four phases, companion, agenda timing, CI builds
 - [ ] **MVP**: webcam posture and smile detection with a basic companion overlay
 - [ ] Pre-Meet readiness checklist (framing, lighting, collar, visible notes)
 - [ ] Speech pipeline: filler words, pace, talk-time
@@ -110,7 +111,75 @@ Industry professionals heading into meetings where how they come across matters 
 
 ## Status
 
-🚧 Concept / early design. No code yet.
+🚧 **App skeleton (v0.1.0).** The main window, the four phase pages and the floating companion all work. Agenda timing is real. There's no camera, microphone or AI yet: posture, smile and speech tips come from an optional **demo** source.
+
+What works today:
+- **Training**: edit your agenda (points + target minutes), rehearse with a live per-point timer, and get timing tips ("30 s left", "time's up", "2:00 over").
+- **Pre-Meet**: a readiness checklist you tick by hand. The automatic camera check is a disabled placeholder.
+- **Meet**: run the agenda during a real call, and choose which tip categories the companion may show.
+- **Post-Meet**: a report with timing per point, what went well, what to improve and next steps.
+- **Companion**: a frameless, always-on-top smiley with a speech bubble. Its expression changes with each tip. Drag it to move it, click it to dismiss a tip, double-click it to open SMILE, or right-click it for a menu.
+
+---
+
+## Download
+
+Every push to `main` builds Linux, Windows and macOS packages in GitHub Actions (see the **Actions** tab → latest run → *Artifacts*). Tagged versions (`v*`) are also published under **Releases**:
+
+| Platform | File | Notes |
+|---|---|---|
+| Linux | `SMILE-linux-x86_64.AppImage` | `chmod +x` it, then run it. |
+| Windows | `SMILE-windows-x64.zip` | Unzip and run `SMILE.exe`. |
+| macOS | `SMILE-macos-universal.dmg` | Not notarised yet: the first time, right-click the app → **Open**. |
+
+---
+
+## Building from source
+
+Requirements: **CMake ≥ 3.21**, a C++17 compiler, and **Qt 6.5 or newer** (the CI uses Qt 6.8 LTS).
+
+```bash
+# Debian / Ubuntu / Kali
+sudo apt install cmake ninja-build qt6-base-dev
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/SMILE
+```
+
+If Qt comes from the online installer or [aqtinstall](https://github.com/miurahr/aqtinstall), point CMake at it with `-DCMAKE_PREFIX_PATH=/path/to/Qt/6.8.3/gcc_64` (or `msvc2022_64`, `macos`).
+
+---
+
+## Code layout
+
+```
+src/
+├── main.cpp
+├── core/                  # Session logic, no UI. AI modules plug in here.
+│   ├── Agenda.h           # AgendaPoint: title, target time, actual time
+│   ├── Tip.h/.cpp         # Tip: category, severity, text, source
+│   ├── TipSource.h        # ⭐ Interface every AI module implements
+│   ├── DemoTipSource.*    # Placeholder that emits sample tips
+│   ├── SessionController.*# Runs a session: timing, timing tips, report
+│   └── SessionReport.h    # Everything a session produced
+├── companion/
+│   ├── CompanionWindow.*  # Floating always-on-top coach
+│   └── SmileyPainter.*    # Draws the character and the app icon
+└── app/
+    ├── MainWindow.*       # Sidebar + pages, menus, wiring
+    ├── SessionRunWidget.* # Live timer view shared by Training and Meet
+    └── pages/             # TrainingPage, PreMeetPage, MeetPage, PostMeetPage
+packaging/linux/           # .desktop file and icon for the AppImage
+.github/workflows/build.yml# CI: builds and packages all three platforms
+```
+
+### Adding an AI module
+
+1. Subclass `TipSource` (for example `PostureTipSource`), implement `start()`/`stop()`, and `emit tipRaised(tip)` whenever the model spots something.
+2. Register it in `MainWindow`'s constructor with `m_controller->addTipSource(new PostureTipSource);`.
+
+That's all. Its tips then appear on the companion (if that category is switched on) and in the Post-Meet report. Heavy models should run on a worker thread or in a separate Python process, and only emit tips back to the UI thread.
 
 ---
 

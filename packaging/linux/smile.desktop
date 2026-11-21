@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SMILE
+GenericName=Meeting Coach
+Comment=Smart Meeting Interactive Live Education
+Exec=SMILE
+Icon=smile
+Categories=Education;Office;
+Terminal=false

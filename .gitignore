@@ -1,0 +1,17 @@
+# Build output
+build/
+build-*/
+out/
+dist/
+AppDir/
+*.AppImage
+*.dmg
+*.zip
+
+# IDE / tooling
+.vscode/
+.idea/
+.cache/
+CMakeLists.txt.user*
+compile_commands.json
+.DS_Store

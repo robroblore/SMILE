@@ -28,6 +28,7 @@ CompanionHost::CompanionHost(const QString &serverName, QObject *parent)
     connect(m_window, &CompanionWindow::nextPointRequested, this, [this] { send(QStringLiteral("nextPoint")); });
     connect(m_window, &CompanionWindow::endSessionRequested, this, [this] { send(QStringLiteral("endSession")); });
     connect(m_window, &CompanionWindow::debugViewRequested, this, [this] { send(QStringLiteral("debugView")); });
+    connect(m_window, &CompanionWindow::liveTipsSnoozed, this, [this] { send(QStringLiteral("tipsSnoozed")); });
     connect(m_window, &CompanionWindow::liveTipPresented, this, [this](const Tip &tip) {
         send(QStringLiteral("presented"), {{QStringLiteral("tip"), CompanionProtocol::tipToJson(tip)}});
     });

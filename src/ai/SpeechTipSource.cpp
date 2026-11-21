@@ -350,6 +350,29 @@ int SpeechTipSource::countWords(const QString &text)
     return n;
 }
 
+bool SpeechTipSource::isWarningActive(const QString &warningId) const
+{
+    if (!m_running || !m_mic->isActive() || !AppSettings::instance().useMicrophone())
+        return false;
+    const auto thresholds = AppSettings::instance().thresholds();
+    if (warningId == QLatin1String("pace")) {
+        const double wpm = m_mic->syllablesPerSecond() * 60.0 / kSyllablesPerWord * m_paceFactor;
+        return m_mic->isSpeaking() && int(wpm) > thresholds.fastWpm
+            && m_mic->recentSpeechMs() >= kFastSustainMs;
+    }
+    if (warningId != QLatin1String("fillers") || !AppSettings::instance().cloudAnalysis())
+        return false;
+    const auto cutoff = now() - 60000;
+    int total = 0;
+    for (const Chunk &chunk : m_recent) {
+        if (chunk.atMs >= cutoff) {
+            for (int count : chunk.fillers)
+                total += count;
+        }
+    }
+    return total >= thresholds.fillersPerMinute;
+}
+
 void SpeechTipSource::tip(const QString &key, TipCategory category, TipSeverity severity, const QString &text,
                           const QString &reason)
 {
@@ -364,6 +387,8 @@ void SpeechTipSource::tip(const QString &key, TipCategory category, TipSeverity 
     t.text = text;
     t.reason = reason;
     t.source = name();
+    if (severity == TipSeverity::Warning && isWarningActive(key))
+        t.warningId = key;
     emit tipRaised(t);
 }
 

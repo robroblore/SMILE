@@ -36,6 +36,24 @@ bool SessionController::isCategoryShownLive(TipCategory category) const
     return !m_hiddenCategories.contains(static_cast<int>(category));
 }
 
+bool SessionController::isWarningActive(const Tip &tip) const
+{
+    if (!m_running || !isCategoryShownLive(tip.category) || tip.raisedAt < m_startedAt
+        || tip.warningId.isEmpty())
+        return false;
+    if (tip.source == QLatin1String("timer")) {
+        if (m_index < 0 || m_index >= m_active.size() || tip.warningId != QString::number(m_index))
+            return false;
+        const int target = m_active.at(m_index).targetSeconds;
+        return target > 0 && elapsedOnCurrent() >= target;
+    }
+    for (const TipSource *source : m_sources) {
+        if (source->isEnabled() && source->name() == tip.source)
+            return source->isWarningActive(tip.warningId);
+    }
+    return false;
+}
+
 void SessionController::setCategoryShownLive(TipCategory category, bool shown)
 {
     if (shown)
@@ -211,6 +229,7 @@ void SessionController::onTick()
     if (over >= threshold && over >= 0) {
         ++m_overtimeWarnings;
         Tip tip;
+        tip.warningId = QString::number(m_index);
         tip.category = TipCategory::Timing;
         tip.severity = TipSeverity::Warning;
         tip.text = over < kRepeatOvertimeEverySeconds

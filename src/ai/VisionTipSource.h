@@ -34,6 +34,7 @@ public:
     void start() override;
     void stop() override;
     QVariantMap reportData() const override;
+    bool isWarningActive(const QString &warningId) const override;
 
     static QString analysisPrompt();
     // 0..100: warm 100, positive 90, neutral & relaxed 75, flat 60, tense 35, cold 15

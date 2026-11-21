@@ -1,0 +1,12 @@
+displayName: SMILE meeting alerts
+description: Haptic alerts for visible meeting warnings.
+events:
+    - name: meetingWarning
+      displayName: Meeting warning
+      description: A meeting warning appeared in SMILE.
+    - name: meetingWarningLow
+      displayName: Meeting warning (low)
+      description: Gentle pulse for a meeting warning.
+    - name: meetingWarningMedium
+      displayName: Meeting warning (medium)
+      description: Medium pulse for a meeting warning.

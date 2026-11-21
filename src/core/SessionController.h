@@ -34,6 +34,7 @@ public:
 
     // Disabled categories are still logged in the report, just not shown live.
     bool isCategoryShownLive(TipCategory category) const;
+    bool isWarningActive(const Tip &tip) const;
     void setCategoryShownLive(TipCategory category, bool shown);
 
     bool isRunning() const { return m_running; }

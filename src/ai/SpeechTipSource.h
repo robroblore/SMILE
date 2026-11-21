@@ -27,6 +27,7 @@ public:
     void start() override;
     void stop() override;
     QVariantMap reportData() const override;
+    bool isWarningActive(const QString &warningId) const override;
 
     static QMap<QString, int> countFillers(const QString &text);
     // Swearing (strong or mild), slang and hedging words, for the language review

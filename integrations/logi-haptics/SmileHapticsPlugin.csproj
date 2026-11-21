@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputPath>build/$(Configuration)/bin/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <PluginApiDir Condition="'$(PluginApiDir)' == '' and '$(OS)' == 'Windows_NT'">C:/Program Files/Logi/LogiPluginService</PluginApiDir>
+    <PluginApiDir Condition="'$(PluginApiDir)' == '' and '$(OS)' != 'Windows_NT'">/Applications/Utilities/LogiPluginService.app/Contents/MonoBundle</PluginApiDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="PluginApi">
+      <HintPath>$(PluginApiDir)/PluginApi.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <PackageFile Include="package/**/*" />
+  </ItemGroup>
+  <Target Name="CopyPluginPackage" AfterTargets="Build">
+    <Copy SourceFiles="@(PackageFile)" DestinationFolder="$(OutputPath)../%(RecursiveDir)" />
+  </Target>
+</Project>

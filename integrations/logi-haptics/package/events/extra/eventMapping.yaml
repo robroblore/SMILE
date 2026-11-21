@@ -1,0 +1,8 @@
+haptics:
+    meetingWarning:
+        DEFAULT: sharp_collision
+        MX Master 4: sharp_collision
+    meetingWarningLow:
+        DEFAULT: subtle_collision
+    meetingWarningMedium:
+        DEFAULT: damp_collision

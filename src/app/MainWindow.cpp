@@ -1,5 +1,7 @@
 #include "app/MainWindow.h"
 
+#include <optional>
+
 #include <QAction>
 #include <QApplication>
 #include <QButtonGroup>
@@ -97,13 +99,11 @@ MainWindow::MainWindow(QWidget *parent)
             return; // the avatar is the other participant; tips go to the report
         m_companion->showTip(tip);
     });
-    connect(m_companion, &CompanionClient::liveTipPresented, this, [this](const Tip &tip) {
-        if (m_controller->isRunning() && m_controller->mode() == SessionMode::Meeting
-            && tip.severity == TipSeverity::Warning && tip.source != QLatin1String("demo")
-            && AppSettings::instance().hapticFeedbackEnabled()) {
-            HapticMouse::requestPulse(tip.category);
-        }
-    });
+    m_hapticsTimer.setInterval(1000);
+    m_hapticsTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_hapticsTimer, &QTimer::timeout, this, &MainWindow::repeatHaptics);
+    connect(m_companion, &CompanionClient::liveTipPresented, this, &MainWindow::notifyHaptics);
+    connect(m_companion, &CompanionClient::liveTipsSnoozed, this, &MainWindow::stopHaptics);
     // Every tip, with its reason, goes to the debug log
     connect(m_controller, &SessionController::tipLogged, this, [](const Tip &tip) {
         LiveSignals::instance().addEvent(LiveSignals::Event::Tip, tip.text, tip.reason);
@@ -113,11 +113,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_timerTick->setInterval(500);
     connect(m_timerTick, &QTimer::timeout, this, &MainWindow::updateCompanionTimer);
     connect(&AppSettings::instance(), &AppSettings::changed, this, [this] {
+        if (!AppSettings::instance().physicalHapticsEnabled())
+            stopHaptics();
         m_companion->reloadSettings();
         updateCompanionTimer();
     });
 
     connect(m_controller, &SessionController::runningChanged, this, [this](bool running) {
+        if (!running)
+            stopHaptics();
         m_companion->setSessionActive(running);
         if (running)
             m_timerTick->start();
@@ -156,6 +160,64 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete m_debug;
+}
+
+void MainWindow::notifyHaptics(const Tip &tip)
+{
+    if (!m_controller->isRunning() || m_controller->mode() != SessionMode::Meeting
+        || tip.severity != TipSeverity::Warning || tip.source == QLatin1String("demo")
+        || !m_controller->isCategoryShownLive(tip.category))
+        return;
+
+    const auto &settings = AppSettings::instance();
+    if (!settings.physicalHapticsEnabled()) {
+        if (settings.hapticFeedbackEnabled())
+            HapticMouse::requestPulse(tip.category);
+        return;
+    }
+
+    if (!tip.warningId.isEmpty()) {
+        const QString key = tip.source + QLatin1Char(':') + tip.warningId;
+        if (!m_controller->isWarningActive(tip) || m_hapticWarnings.contains(key))
+            return;
+        ActiveHapticWarning warning{tip, {}};
+        warning.sinceFirstPulse.start();
+        m_hapticWarnings.insert(key, warning);
+    }
+    HapticMouse::playPulse(tip.category, settings.hapticStrength());
+    if (!m_hapticWarnings.isEmpty())
+        m_hapticsTimer.start();
+}
+
+void MainWindow::repeatHaptics()
+{
+    const auto &settings = AppSettings::instance();
+    if (!settings.physicalHapticsEnabled() || !m_controller->isRunning()) {
+        stopHaptics();
+        return;
+    }
+
+    const int maxDuration = settings.hapticDurationSeconds();
+    std::optional<TipCategory> activeCategory;
+    for (auto warning = m_hapticWarnings.begin(); warning != m_hapticWarnings.end();) {
+        if (!m_controller->isWarningActive(warning->tip)) {
+            warning = m_hapticWarnings.erase(warning);
+            continue;
+        }
+        if (!maxDuration || warning->sinceFirstPulse.elapsed() < maxDuration * 1000LL)
+            activeCategory = warning->tip.category;
+        ++warning;
+    }
+    if (m_hapticWarnings.isEmpty())
+        m_hapticsTimer.stop();
+    if (activeCategory)
+        HapticMouse::playPulse(*activeCategory, settings.hapticStrength(), false);
+}
+
+void MainWindow::stopHaptics()
+{
+    m_hapticsTimer.stop();
+    m_hapticWarnings.clear();
 }
 
 void MainWindow::updateCompanionTimer()

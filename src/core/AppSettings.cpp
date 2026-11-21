@@ -261,6 +261,39 @@ void AppSettings::setHapticFeedbackEnabled(bool on)
     emit changed();
 }
 
+bool AppSettings::physicalHapticsEnabled() const
+{
+    return value("haptics/physicalEnabled", false).toBool();
+}
+
+void AppSettings::setPhysicalHapticsEnabled(bool on)
+{
+    store("haptics/physicalEnabled", on);
+    emit changed();
+}
+
+int AppSettings::hapticDurationSeconds() const
+{
+    return qBound(0, value("haptics/durationSeconds", 0).toInt(), 120);
+}
+
+void AppSettings::setHapticDurationSeconds(int seconds)
+{
+    store("haptics/durationSeconds", qBound(0, seconds, 120));
+    emit changed();
+}
+
+int AppSettings::hapticStrength() const
+{
+    return qBound(0, value("haptics/strength", 1).toInt(), 2);
+}
+
+void AppSettings::setHapticStrength(int strength)
+{
+    store("haptics/strength", qBound(0, strength, 2));
+    emit changed();
+}
+
 QString AppSettings::speechText() const
 {
     return value("training/speech", QString()).toString();

@@ -46,6 +46,9 @@ public slots:
     // Speech transcribed while the session runs; used to track key points.
     void addTranscript(const QString &text);
     void start(SessionMode mode);
+    // Run a session on a given agenda (one section to practise, a simulation)
+    // without changing the saved agenda.
+    void startWith(const Agenda &agenda, SessionMode mode);
     void nextPoint();
     void stop();
 

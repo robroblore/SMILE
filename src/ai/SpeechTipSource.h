@@ -29,6 +29,13 @@ public:
     QVariantMap reportData() const override;
 
     static QMap<QString, int> countFillers(const QString &text);
+    // Swearing (strong or mild), slang and hedging words, for the language review
+    struct LanguageHits {
+        QStringList profanity;  // words as said
+        QMap<QString, int> slang;
+        int hedges = 0;
+    };
+    static LanguageHits checkLanguage(const QString &text);
     static int countWords(const QString &text);
 
 signals:
@@ -70,6 +77,16 @@ private:
     int m_words = 0;
     qint64 m_transcribedSpeechMs = 0;
     QString m_lastError;
+    // Language
+    QList<QVariantMap> m_flagged; // {word, context}
+    QMap<QString, int> m_slang;
+    int m_hedges = 0;
+    // Volume: dB samples while speaking
+    QList<float> m_recentDb;      // last ~20 s
+    QList<float> m_baselineDb;    // first ~60 s of speech
+    int m_quietPolls = 0;
+    int m_speakingPolls = 0;
+    int m_pauses = 0;
     qint64 m_speechMs = 0;
     qint64 m_longestRunMs = 0;
 };

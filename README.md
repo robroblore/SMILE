@@ -114,6 +114,16 @@ The cloud answers also calibrate the local estimates to your face and voice as y
 
 ---
 
+## Training: practise and simulate
+
+* **Plan & rehearse**: paste your speech or notes (text or bullets), let SMILE structure it into sections with key points, review them in the structuring window, then rehearse the whole talk.
+* **Practise a section**: practise one section at a time with your notes in front of you. You get a score, specific feedback and suggestions, can try again immediately, and see each attempt compared with the last.
+* **Simulate a meeting**: the SMILE avatar joins as another participant (for example a critical investor or a hiring manager). It speaks, listens, asks unexpected questions, challenges your arguments and, on harder levels, interrupts. Choose Beginner, Intermediate or Advanced. Afterwards you get an evaluation of how you handled it.
+
+During a real meeting SMILE stays discreet: the avatar runs as its own small process, so tips never bring the main window in front of Zoom. An optional section timer can sit beside it.
+
+---
+
 ## AI coach setup
 
 SMILE's smart features (smile, posture and eye-contact tips, filler-word counting, the Pre-Meet camera check and written feedback) use [Together AI](https://together.ai). Timing, lighting and monologue detection work without it.
@@ -124,7 +134,7 @@ The key is **never** built into the app or committed to git. SMILE looks for it 
 2. The `TOGETHER_API_KEY` environment variable.
 3. A `.env` file in the working directory or next to the app (copy `.env.example` to `.env`). `.env` is git-ignored.
 
-Models used: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera), `openai/whisper-large-v3` (speech) and `openai/gpt-oss-120b` (structuring and feedback). Typical cost is about 25 cents per hour of coaching.
+Models used: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera), `openai/whisper-large-v3` (speech), `openai/gpt-oss-120b` (structuring, simulation and feedback) and `hexgrad/Kokoro-82M` (the avatar's voice). Typical cost is about 25 cents per hour of coaching.
 
 **Privacy:** while a session runs, a small snapshot is sent every 3 s or so (adjustable) and speech clips every ~10 s, over HTTPS. Nothing is recorded to disk, and SMILE never changes your video feed. Switch **Analyse with AI** off in Settings to keep everything local.
 

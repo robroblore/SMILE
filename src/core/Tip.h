@@ -12,7 +12,8 @@ enum class TipCategory {
     Expression,
     Speech,
     Appearance,
-    Content, // key points of the agenda
+    Content,  // key points of the agenda
+    Language, // professional vocabulary
     General,
 };
 

@@ -177,6 +177,57 @@ void AiClient::transcribe(const QByteArray &wav, TextCallback done)
     });
 }
 
+void AiClient::speak(const QString &text, const QString &voice, AudioCallback done)
+{
+    if (!isConfigured()) {
+        done({}, tr("No AI key set."));
+        return;
+    }
+    const QJsonObject body{
+        {QStringLiteral("model"), AppSettings::instance().speechModel()},
+        {QStringLiteral("input"), text},
+        {QStringLiteral("voice"), voice},
+        {QStringLiteral("response_format"), QStringLiteral("wav")},
+        {QStringLiteral("sample_rate"), 24000},
+    };
+    QNetworkReply *reply = post(QStringLiteral("/audio/speech"), body);
+    connect(reply, &QNetworkReply::finished, this, [reply, done] {
+        reply->deleteLater();
+        const QByteArray data = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            done({}, errorFrom(reply, data));
+            return;
+        }
+        done(data, data.startsWith("RIFF") ? QString() : tr("Unexpected audio format from the AI."));
+    });
+}
+
+void AiClient::chatMessages(const QJsonArray &messages, int maxTokens, TextCallback done)
+{
+    if (!isConfigured()) {
+        done(QString(), tr("No AI key set."));
+        return;
+    }
+    const QString model = AppSettings::instance().chatModel();
+    QJsonObject body{{QStringLiteral("model"), model},
+                     {QStringLiteral("max_tokens"), maxTokens},
+                     {QStringLiteral("temperature"), 0.8},
+                     {QStringLiteral("messages"), messages}};
+    if (model.contains(QLatin1String("gpt-oss")))
+        body.insert(QStringLiteral("reasoning_effort"), QStringLiteral("low"));
+    QNetworkReply *reply = post(QStringLiteral("/chat/completions"), body);
+    connect(reply, &QNetworkReply::finished, this, [reply, done] {
+        reply->deleteLater();
+        const QByteArray data = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            done(QString(), errorFrom(reply, data));
+            return;
+        }
+        const QString text = messageText(QJsonDocument::fromJson(data).object()).trimmed();
+        done(text, text.isEmpty() ? tr("The AI returned an empty answer.") : QString());
+    });
+}
+
 void AiClient::testConnection(TextCallback done)
 {
     chat(QStringLiteral("You are a connection test."), QStringLiteral("Reply with the single word: ready"), 200,

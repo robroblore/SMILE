@@ -3,6 +3,7 @@
 #include <QAbstractButton>
 #include <QFrame>
 #include <QImage>
+#include <QLineEdit>
 #include <QVariantAnimation>
 
 #include "ui/Icons.h"
@@ -121,6 +122,70 @@ protected:
 private:
     qreal m_level = 0;
     bool m_speaking = false;
+};
+
+// Duration field: accepts "5" (minutes), "5:30", "90s", "2m 30s", "1.5", "1h".
+// Shows the value as "5 min" or "5:30 min".
+class DurationEdit : public QLineEdit
+{
+    Q_OBJECT
+public:
+    explicit DurationEdit(QWidget *parent = nullptr);
+    int seconds() const { return m_seconds; }
+    void setSeconds(int seconds);
+    void setAllowZero(bool allow) { m_allowZero = allow; } // 0 shows "No limit"
+    static int parse(const QString &text, bool *ok);
+    static QString format(int seconds, bool allowZero);
+    QSize sizeHint() const override;
+
+signals:
+    void secondsChanged(int seconds);
+
+protected:
+    void focusInEvent(QFocusEvent *event) override;
+
+private:
+    void commit();
+    int m_seconds = 0;
+    bool m_allowZero = false;
+};
+
+// A row that expands to show details: title, coloured score bar, rating and
+// a chevron. Click the header to open or close it.
+class Expander : public QFrame
+{
+    Q_OBJECT
+public:
+    Expander(const QString &title, const QString &subtitle, int score, const QColor &colour, const QString &valueText,
+             QWidget *parent = nullptr);
+    QVBoxLayout *body() const { return m_body; }
+    void setExpanded(bool expanded);
+    bool isExpanded() const;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
+private:
+    QWidget *m_header;
+    QWidget *m_content;
+    QVBoxLayout *m_body;
+    class QLabel *m_chevron;
+};
+
+// Big circular score (0..100) with a label underneath the number.
+class ScoreRing : public QWidget
+{
+    Q_OBJECT
+public:
+    ScoreRing(int score, const QColor &colour, int size, const QString &caption = QString(), QWidget *parent = nullptr);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    int m_score;
+    QColor m_colour;
+    QString m_caption;
 };
 
 // A rounded "card" surface with a vertical layout.

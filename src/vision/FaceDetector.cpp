@@ -1,10 +1,17 @@
 #include "vision/FaceDetector.h"
 
+#include <QCoreApplication>
 #include <QFile>
+#include <QLibrary>
+#include <QMutex>
 #include <algorithm>
 #include <cmath>
 
 #ifdef SMILE_HAVE_ONNX
+// ONNX Runtime is loaded when SMILE runs, not linked at build time: if the
+// library is missing or can't load (wrong CPU, damaged install), SMILE still
+// starts and simply uses the cloud AI for face analysis.
+#define ORT_API_MANUAL_INIT
 #include <onnxruntime_cxx_api.h>
 #endif
 
@@ -24,8 +31,79 @@ float iou(const QRectF &a, const QRectF &b)
 
 #ifdef SMILE_HAVE_ONNX
 
+namespace {
+QMutex g_loadMutex;
+
+const OrtApi *loadOnnxRuntime(QString *error)
+{
+    QMutexLocker lock(&g_loadMutex);
+    static const OrtApi *api = nullptr;
+    static QString lastError;
+    static bool tried = false;
+    if (tried) {
+        *error = lastError;
+        return api;
+    }
+    tried = true;
+
+    const QString dir = QCoreApplication::applicationDirPath();
+    QStringList candidates;
+#if defined(Q_OS_WIN)
+    candidates << dir + QStringLiteral("/onnxruntime.dll");
+#elif defined(Q_OS_MACOS)
+    candidates << dir + QStringLiteral("/../Frameworks/libonnxruntime.1.dylib")
+               << dir + QStringLiteral("/../Frameworks/libonnxruntime.dylib");
+#else
+    candidates << dir + QStringLiteral("/../lib/libonnxruntime.so.1") << dir + QStringLiteral("/libonnxruntime.so.1");
+#endif
+#ifdef SMILE_ONNXRUNTIME_DEV_DIR
+    // Running from a build folder during development
+    const QString dev = QStringLiteral(SMILE_ONNXRUNTIME_DEV_DIR "/lib/");
+    candidates << dev + QStringLiteral("onnxruntime.dll") << dev + QStringLiteral("libonnxruntime.dylib")
+               << dev + QStringLiteral("libonnxruntime.so.1");
+#endif
+    candidates << QStringLiteral("onnxruntime"); // system-wide install
+
+    for (const QString &path : std::as_const(candidates)) {
+        auto *lib = new QLibrary(path); // kept loaded for the app's lifetime
+        if (!lib->load()) {
+            lastError = lib->errorString();
+            delete lib;
+            continue;
+        }
+        using GetApiBase = const OrtApiBase *(*)();
+        auto getBase = reinterpret_cast<GetApiBase>(lib->resolve("OrtGetApiBase"));
+        const OrtApiBase *base = getBase ? getBase() : nullptr;
+        api = base ? base->GetApi(ORT_API_VERSION) : nullptr;
+        if (api) {
+            Ort::InitApi(api);
+            lastError.clear();
+            break;
+        }
+        lastError = QStringLiteral("%1 is not a compatible ONNX Runtime").arg(path);
+    }
+    if (!api && lastError.isEmpty())
+        lastError = QStringLiteral("ONNX Runtime not found");
+    *error = lastError;
+    return api;
+}
+} // namespace
+
+bool FaceDetector::libraryAvailable()
+{
+    QString error;
+    return loadOnnxRuntime(&error) != nullptr;
+}
+
+QString FaceDetector::libraryError()
+{
+    QString error;
+    loadOnnxRuntime(&error);
+    return error;
+}
+
 struct FaceDetector::Impl {
-    Ort::Env env{ORT_LOGGING_LEVEL_ERROR, "smile-face"};
+    std::unique_ptr<Ort::Env> env;
     std::unique_ptr<Ort::Session> session;
     QByteArray model;
     std::vector<float> input = std::vector<float>(size_t(3) * kInput * kInput);
@@ -34,6 +112,11 @@ struct FaceDetector::Impl {
 FaceDetector::FaceDetector()
     : d(std::make_unique<Impl>())
 {
+    QString loadError;
+    if (!loadOnnxRuntime(&loadError)) {
+        m_error = QStringLiteral("Local face tracking unavailable: %1").arg(loadError);
+        return;
+    }
     QFile file(QStringLiteral(":/models/face_detection_yunet_2023mar.onnx"));
     if (!file.open(QIODevice::ReadOnly)) {
         m_error = QStringLiteral("Face model missing from the build.");
@@ -44,7 +127,8 @@ FaceDetector::FaceDetector()
         Ort::SessionOptions options;
         options.SetIntraOpNumThreads(2); // leave CPU for the camera and UI
         options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        d->session = std::make_unique<Ort::Session>(d->env, d->model.constData(), size_t(d->model.size()), options);
+        d->env = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_ERROR, "smile-face");
+        d->session = std::make_unique<Ort::Session>(*d->env, d->model.constData(), size_t(d->model.size()), options);
     } catch (const Ort::Exception &e) {
         m_error = QString::fromUtf8(e.what());
     }
@@ -148,6 +232,14 @@ QList<FaceDetector::Face> FaceDetector::detect(const QImage &image, float minSco
 #else // no ONNX Runtime: detector unavailable
 
 struct FaceDetector::Impl {};
+bool FaceDetector::libraryAvailable()
+{
+    return false;
+}
+QString FaceDetector::libraryError()
+{
+    return QStringLiteral("This build of SMILE has no local face tracking.");
+}
 FaceDetector::FaceDetector()
     : m_error(QStringLiteral("This build of SMILE has no local face tracking."))
 {

@@ -120,11 +120,7 @@ CameraMonitor::~CameraMonitor()
 
 bool CameraMonitor::faceTrackingAvailable() const
 {
-#ifdef SMILE_HAVE_ONNX
-    return true;
-#else
-    return false;
-#endif
+    return FaceDetector::libraryAvailable();
 }
 
 void CameraMonitor::acquire()

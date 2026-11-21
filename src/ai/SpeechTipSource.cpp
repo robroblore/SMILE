@@ -2,6 +2,7 @@
 
 #include <QElapsedTimer>
 #include <QRegularExpression>
+#include <algorithm>
 
 #include "ai/AiClient.h"
 #include "core/AppSettings.h"
@@ -50,6 +51,12 @@ void SpeechTipSource::start()
     m_transcribedSpeechMs = 0;
     m_lastError.clear();
     m_speechMs = m_longestRunMs = 0;
+    m_flagged.clear();
+    m_slang.clear();
+    m_hedges = 0;
+    m_recentDb.clear();
+    m_baselineDb.clear();
+    m_quietPolls = m_speakingPolls = m_pauses = 0;
     LiveSignals::instance().voice = LiveSignals::Voice();
 
     if (!AppSettings::instance().useMicrophone())
@@ -67,6 +74,7 @@ void SpeechTipSource::stop()
     if (m_acquired) {
         m_speechMs = m_mic->speechMs();
         m_longestRunMs = m_mic->longestRunMs();
+        m_pauses = m_mic->pauseCount();
         m_mic->setChunking(false);
         m_mic->release();
         m_acquired = false;
@@ -87,9 +95,36 @@ void SpeechTipSource::poll()
     v.runSeconds = int(m_mic->currentRunMs() / 1000);
     v.error = m_mic->errorString().isEmpty() ? m_lastError : m_mic->errorString();
 
-    if (v.speaking != m_wasSpeaking) {
-        m_wasSpeaking = v.speaking;
+    m_wasSpeaking = v.speaking;
+
+    // --- Volume, relative to how you normally speak (mic gain differs a lot
+    // between computers, so absolute levels alone would be unfair)
+    if (v.speaking && m_mic->levelDb() > -80) {
+        ++m_speakingPolls;
+        m_recentDb.append(float(m_mic->levelDb()));
+        while (m_recentDb.size() > 40) // 20 s at 2 polls/s
+            m_recentDb.removeFirst();
+        if (m_baselineDb.size() < 120)
+            m_baselineDb.append(float(m_mic->levelDb()));
+        auto median = [](QList<float> l) {
+            std::sort(l.begin(), l.end());
+            return l.isEmpty() ? -90.f : l[l.size() / 2];
+        };
+        v.speechDb = median(m_recentDb);
+        v.baselineDb = median(m_baselineDb);
+        const bool quiet = m_baselineDb.size() >= 60 && m_recentDb.size() >= 30
+                           && (v.speechDb < v.baselineDb - 8.f || v.speechDb < -48.f);
+        if (quiet)
+            ++m_quietPolls;
+        if (quiet)
+            tip(QStringLiteral("quiet"), TipCategory::Speech, TipSeverity::Info, tr("Speak up a little."),
+                tr("Your voice has been around %1 dB for the last 20 s, %2 dB quieter than your usual %3 dB.")
+                    .arg(v.speechDb, 0, 'f', 0)
+                    .arg(v.baselineDb - v.speechDb, 0, 'f', 0)
+                    .arg(v.baselineDb, 0, 'f', 0));
     }
+    const double speechMinutes = m_mic->speechMs() / 60000.0;
+    v.pausesPerMinute = speechMinutes > 0.25 ? int(m_mic->pauseCount() / speechMinutes) : 0;
 
     // --- Monologue
     const qint64 run = m_mic->currentRunMs();
@@ -175,6 +210,17 @@ void SpeechTipSource::onChunk(const QByteArray &wav, int durationMs, int speechM
         m_transcribedSpeechMs += speechMs;
         v.lastTranscript = text;
 
+        const LanguageHits lang = checkLanguage(text);
+        m_hedges += lang.hedges;
+        for (auto it = lang.slang.cbegin(); it != lang.slang.cend(); ++it)
+            m_slang[it.key()] += it.value();
+        for (const QString &word : lang.profanity) {
+            const int at = int(text.indexOf(word, 0, Qt::CaseInsensitive));
+            const QString context = text.mid(qMax(0, at - 40), word.size() + 80).simplified();
+            m_flagged.append({{QStringLiteral("word"), word}, {QStringLiteral("context"), context}});
+            v.lastFlaggedWord = word;
+        }
+
         const double minutes = qMax(speechMs, 1) / 60000.0;
         const int whisperWpm = speechMs >= 4000 ? int(words / minutes) : 0;
         if (whisperWpm > 0) {
@@ -193,6 +239,11 @@ void SpeechTipSource::onChunk(const QByteArray &wav, int durationMs, int speechM
 
         m_recent.append({now(), fillers, text});
         const AppSettings::Thresholds t = AppSettings::instance().thresholds();
+
+        if (!lang.profanity.isEmpty())
+            tip(QStringLiteral("language"), TipCategory::Language, TipSeverity::Warning,
+                tr("Watch your language. Keep it professional."),
+                tr("Whisper heard \"%1\". Alternatives are suggested in your review.").arg(lang.profanity.join(QStringLiteral("\", \""))));
 
         QMap<QString, int> lastMinute;
         for (const Chunk &c : std::as_const(m_recent))
@@ -225,6 +276,37 @@ void SpeechTipSource::onChunk(const QByteArray &wav, int durationMs, int speechM
                     .arg(whisperWpm)
                     .arg(t.fastWpm));
     });
+}
+
+SpeechTipSource::LanguageHits SpeechTipSource::checkLanguage(const QString &text)
+{
+    static const QRegularExpression profanity(
+        QStringLiteral("\\b(f+u+c+k\\w*|sh[i1]t\\w*|bullshit|bitch\\w*|bastard\\w*|asshole\\w*|dick(head)?|cunt\\w*|"
+                       "motherf\\w*|wtf|piss(ed|ing)?|damn(ed|it)?|crap\\w*|hell)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression slang(
+        QStringLiteral("\\b(gonna|wanna|gotta|kinda|sorta|ain't|y'all|dude|nope|yeah yeah|whatever|stuff like that|"
+                       "and stuff|super (?:cool|awesome)|awesome|cool)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression hedges(
+        QStringLiteral("\\b(i think|i guess|maybe|sort of|kind of|probably|hopefully|i'm not sure|i feel like)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    LanguageHits hits;
+    auto p = profanity.globalMatch(text);
+    while (p.hasNext()) {
+        const QString w = p.next().captured(1);
+        // "hell" only counts as an exclamation, not inside "hello"/"shell" (word boundaries handle that)
+        hits.profanity << w;
+    }
+    auto s = slang.globalMatch(text);
+    while (s.hasNext())
+        ++hits.slang[s.next().captured(1).toLower()];
+    auto h = hedges.globalMatch(text);
+    while (h.hasNext()) {
+        h.next();
+        ++hits.hedges;
+    }
+    return hits;
 }
 
 QMap<QString, int> SpeechTipSource::countFillers(const QString &text)
@@ -295,6 +377,12 @@ QVariantMap SpeechTipSource::reportData() const
         fillers.insert(it.key(), it.value());
         totalFillers += it.value();
     }
+    QVariantList flagged;
+    for (const QVariantMap &f : m_flagged)
+        flagged << f;
+    QVariantMap slang;
+    for (auto it = m_slang.cbegin(); it != m_slang.cend(); ++it)
+        slang.insert(it.key(), it.value());
     const double minutes = m_transcribedSpeechMs / 60000.0;
     const int whisperWpm = minutes > 0.1 ? int(qRound(m_words / minutes)) : 0;
     const int localWpm = m_localWpmCount ? int(m_localWpmSum / m_localWpmCount) : 0;
@@ -307,6 +395,11 @@ QVariantMap SpeechTipSource::reportData() const
         {QStringLiteral("wordsPerMinute"), whisperWpm > 0 ? whisperWpm : localWpm},
         {QStringLiteral("paceSource"), whisperWpm > 0 ? QStringLiteral("Whisper") : QStringLiteral("local estimate")},
         {QStringLiteral("transcript"), m_transcript},
+        {QStringLiteral("flagged"), flagged},
+        {QStringLiteral("slang"), slang},
+        {QStringLiteral("hedges"), m_hedges},
+        {QStringLiteral("pausesPerMinute"), m_speechMs > 15000 ? qRound(m_pauses / (m_speechMs / 60000.0)) : -1},
+        {QStringLiteral("quietPct"), m_speakingPolls > 0 ? qRound(100.0 * m_quietPolls / m_speakingPolls) : -1},
         {QStringLiteral("lastError"), m_lastError},
     };
 }

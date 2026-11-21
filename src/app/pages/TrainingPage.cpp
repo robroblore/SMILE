@@ -5,18 +5,20 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
-#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
-#include <QSpinBox>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 #include "ai/AiClient.h"
 #include "ai/Structurer.h"
 #include "app/AgendaEditor.h"
+#include "app/PracticeView.h"
+#include "app/SimulationView.h"
 #include "app/SessionRunWidget.h"
+#include "app/StructureDialog.h"
 #include "core/Plural.h"
 #include "core/AppSettings.h"
 #include "core/SessionController.h"
@@ -50,14 +52,14 @@ Agenda sampleAgenda()
 }
 } // namespace
 
-TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, QWidget *parent)
+TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, QWidget *parent)
     : QWidget(parent)
     , m_controller(controller)
     , m_ai(ai)
     , m_speech(new QPlainTextEdit)
     , m_textMode(new QPushButton(tr("Text")))
     , m_bulletMode(new QPushButton(tr("Bullet points")))
-    , m_target(new QSpinBox)
+    , m_target(new DurationEdit)
     , m_structure(new QPushButton(tr("Structure into sections")))
     , m_structureStatus(Ui::label(QString(), "secondary"))
     , m_wordCount(Ui::label(QString(), "secondary"))
@@ -93,12 +95,8 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, QWidget 
     m_bulletMode->setIcon(Icons::icon(Icons::Icon::Bullets, c.text, 14));
     modeRow->addStretch();
     modeRow->addWidget(Ui::label(tr("Target length")));
-    m_target->setRange(1, 180);
-    m_target->setSuffix(tr(" min"));
-    m_target->setButtonSymbols(QAbstractSpinBox::NoButtons);
-    m_target->setAlignment(Qt::AlignRight);
-    m_target->setFixedWidth(84);
-    m_target->setValue(settings.targetMinutes());
+    m_target->setSeconds(settings.targetSeconds());
+    m_target->setMinimumWidth(m_target->sizeHint().width());
     modeRow->addWidget(m_target);
     speechCard->body()->addLayout(modeRow);
 
@@ -160,20 +158,72 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, QWidget 
     idleLayout->addWidget(start);
     rehearseCard->body()->addWidget(m_idle);
     rehearseCard->body()->addWidget(m_run);
+    auto *timer = new ToggleSwitch;
+    timer->setChecked(settings.sectionTimer());
+    connect(timer, &QAbstractButton::toggled, &settings, &AppSettings::setSectionTimer);
+    connect(&settings, &AppSettings::changed, timer, [timer] {
+        const QSignalBlocker block(timer);
+        timer->setChecked(AppSettings::instance().sectionTimer());
+    });
+    rehearseCard->body()->addWidget(new OptionRow(tr("Section timer next to SMILE"),
+                                                  tr("A small timer by the avatar shows the current section, its time and "
+                                                     "whether you're on track. It moves on when you start the next section."),
+                                                  timer));
 
+    // ---- Tab 1: plan & rehearse
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
-    layout->setContentsMargins(36, 28, 36, 28);
+    layout->setContentsMargins(36, 8, 36, 28);
     layout->setSpacing(12);
-    layout->addWidget(Ui::pageHeader(tr("Training"), tr("Plan what you'll say, then practise it against the clock.")));
     layout->addWidget(rehearseCard);
     layout->addWidget(speechCard);
     layout->addWidget(sectionsCard);
     layout->addStretch();
 
+    // ---- Tab 2: practise one section; Tab 3: simulate a meeting
+    auto wrap = [](QWidget *inner) {
+        auto *host = new QWidget;
+        auto *l = new QVBoxLayout(host);
+        l->setContentsMargins(36, 8, 36, 28);
+        l->addWidget(inner);
+        l->addStretch();
+        return Ui::scrollPage(host);
+    };
+    m_tabs = new QStackedWidget;
+    m_tabs->addWidget(Ui::scrollPage(content));
+    m_tabs->addWidget(wrap(new PracticeView(controller, ai)));
+    m_tabs->addWidget(wrap(new SimulationView(controller, ai, mic)));
+
+    // ---- Header with tabs
+    auto *top = new QWidget;
+    top->setObjectName(QStringLiteral("page"));
+    auto *topLayout = new QVBoxLayout(top);
+    topLayout->setContentsMargins(36, 28, 36, 8);
+    topLayout->setSpacing(10);
+    topLayout->addWidget(Ui::pageHeader(tr("Training"), tr("Plan what you'll say, practise it section by section, and "
+                                                           "rehearse a realistic meeting.")));
+    auto *tabRow = new QHBoxLayout;
+    tabRow->setSpacing(4);
+    auto *tabGroup = new QButtonGroup(this);
+    const QStringList tabNames = {tr("Plan && rehearse"), tr("Practise a section"), tr("Simulate a meeting")};
+    for (int i = 0; i < tabNames.size(); ++i) {
+        auto *b = new QPushButton(tabNames[i]);
+        b->setObjectName(QStringLiteral("segment"));
+        b->setCheckable(true);
+        b->setChecked(i == 0);
+        b->setCursor(Qt::PointingHandCursor);
+        tabGroup->addButton(b, i);
+        tabRow->addWidget(b);
+    }
+    tabRow->addStretch();
+    topLayout->addLayout(tabRow);
+    connect(tabGroup, &QButtonGroup::idClicked, m_tabs, &QStackedWidget::setCurrentIndex);
+
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
-    outer->addWidget(Ui::scrollPage(content));
+    outer->setSpacing(0);
+    outer->addWidget(top);
+    outer->addWidget(m_tabs, 1);
 
     // ---- Behaviour
     m_saveTimer.setSingleShot(true);
@@ -183,7 +233,7 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, QWidget 
         updateWordCount();
         m_saveTimer.start();
     });
-    connect(m_target, &QSpinBox::valueChanged, this, [this] { m_saveTimer.start(); });
+    connect(m_target, &DurationEdit::secondsChanged, this, [this] { m_saveTimer.start(); });
     connect(m_textMode, &QPushButton::clicked, this, [this] { setBulletMode(false); });
     connect(m_bulletMode, &QPushButton::clicked, this, [this] { setBulletMode(true); });
     connect(m_structure, &QPushButton::clicked, this, &TrainingPage::structure);
@@ -227,14 +277,6 @@ void TrainingPage::structure()
         m_structureStatus->setText(tr("Write or paste something first."));
         return;
     }
-    if (!m_editor->agenda().isEmpty() && m_editor->agenda().size() > 0 && !AppSettings::instance().agendaJson().isEmpty()) {
-        const auto answer = QMessageBox::question(this, tr("Replace sections?"),
-                                                  tr("This replaces your current sections with new ones built from "
-                                                     "your text. Continue?"));
-        if (answer != QMessageBox::Yes)
-            return;
-    }
-
     auto apply = [this](const Structurer::Result &r) {
         m_structure->setEnabled(true);
         m_structure->setText(tr("Structure again"));
@@ -242,16 +284,19 @@ void TrainingPage::structure()
             m_structureStatus->setText(tr("Couldn't find any sections in that text."));
             return;
         }
-        m_editor->setAgenda(r.sections);
+        m_structureStatus->setText(r.error.isEmpty() ? QString() : tr("AI unavailable, split locally: %1").arg(r.error));
+        // Let the user review, edit and confirm before anything is replaced
+        StructureDialog dialog(r.sections, r.presentationType, r.error.isEmpty() && m_ai->isConfigured(), this);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        const Agenda confirmed = dialog.sections();
+        m_editor->setAgenda(confirmed);
         AppSettings::instance().setPresentationType(r.presentationType);
         m_type->setText(r.presentationType.isEmpty() ? QString() : tr("Detected: %1").arg(r.presentationType));
         int points = 0;
-        for (const AgendaPoint &p : r.sections)
+        for (const AgendaPoint &p : confirmed)
             points += int(p.keyPoints.size());
-        QString status = tr("%1 sections and %2 key points.").arg(r.sections.size()).arg(points);
-        if (!r.error.isEmpty())
-            status += QLatin1Char(' ') + tr("(AI unavailable: split locally. %1)").arg(r.error);
-        m_structureStatus->setText(status);
+        m_structureStatus->setText(tr("%1 sections and %2 key points confirmed.").arg(confirmed.size()).arg(points));
         save();
     };
 
@@ -259,11 +304,9 @@ void TrainingPage::structure()
         m_structure->setEnabled(false);
         m_structure->setText(tr("Structuring…"));
         m_structureStatus->setText(tr("The AI is reading your text."));
-        Structurer::withAi(m_ai, text, m_target->value(), apply);
+        Structurer::withAi(m_ai, text, qMax(1, (m_target->seconds() + 30) / 60), apply);
     } else {
-        apply(Structurer::locally(text, m_target->value()));
-        m_structureStatus->setText(m_structureStatus->text() + QLatin1Char(' ')
-                                   + tr("Add an AI key in Settings for smarter headings."));
+        apply(Structurer::locally(text, qMax(1, (m_target->seconds() + 30) / 60)));
     }
 }
 
@@ -287,7 +330,7 @@ void TrainingPage::save()
 {
     AppSettings &s = AppSettings::instance();
     s.setSpeechText(m_speech->toPlainText());
-    s.setTargetMinutes(m_target->value());
+    s.setTargetSeconds(m_target->seconds());
     QJsonArray array;
     for (const AgendaPoint &p : m_editor->agenda())
         array.append(p.toJson());

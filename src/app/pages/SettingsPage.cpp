@@ -122,6 +122,36 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     coachCard->body()->addLayout(intervalRow);
     connect(interval, &QSpinBox::valueChanged, &settings, &AppSettings::setSnapshotIntervalSeconds);
 
+    auto *advance = new ToggleSwitch;
+    advance->setChecked(settings.autoAdvance());
+    connect(advance, &QAbstractButton::toggled, &settings, &AppSettings::setAutoAdvance);
+    coachCard->body()->addWidget(new OptionRow(tr("Move to the next section automatically"),
+                                               tr("When you start talking about the next section's topic, SMILE moves on "
+                                                  "(and resets the section timer). You can always move on by hand."),
+                                               advance));
+
+    // ---- Appearance
+    auto *lookCard = new Card(tr("Appearance"));
+    auto *lookRow = new QHBoxLayout;
+    lookRow->setSpacing(4);
+    auto *lookGroup = new QButtonGroup(this);
+    const QStringList looks = {tr("System"), tr("Light (white & blue)"), tr("Dark")};
+    for (int i = 0; i < looks.size(); ++i) {
+        auto *b = new QPushButton(looks[i]);
+        b->setObjectName(QStringLiteral("segment"));
+        b->setCheckable(true);
+        b->setChecked(settings.themeMode() == i);
+        b->setCursor(Qt::PointingHandCursor);
+        lookGroup->addButton(b, i);
+        lookRow->addWidget(b);
+    }
+    lookRow->addStretch();
+    lookCard->body()->addLayout(lookRow);
+    connect(lookGroup, &QButtonGroup::idClicked, this, [](int id) {
+        AppSettings::instance().setThemeMode(id);
+        Theme::reapply();
+    });
+
     // ---- Debugging
     auto *debugCard = new Card(tr("Debugging"));
     auto *debugToggle = new ToggleSwitch;
@@ -192,6 +222,7 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     layout->addWidget(Ui::pageHeader(tr("Settings"), tr("AI, camera, microphone and privacy.")));
     layout->addWidget(aiCard);
     layout->addWidget(coachCard);
+    layout->addWidget(lookCard);
     layout->addWidget(cameraCard);
     layout->addWidget(micCard);
     layout->addWidget(debugCard);
@@ -245,7 +276,7 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
 void SettingsPage::describeSensitivity()
 {
     const AppSettings::Thresholds t = AppSettings::instance().thresholds();
-    m_sensitivityText->setText(tr("Tips after: no smile %1 s · looking away %2 s · face out of frame %3 s · bad posture %4 s · "
+    m_sensitivityText->setText(tr("Tips after: tense or cold expression %1 s · looking to the side %2 s · face out of frame %3 s · bad posture %4 s · "
                                   "speaking over %5 wpm · %6 filler words a minute · talking %7 s without a pause. "
                                   "The same tip waits %8 s before repeating; at least %9 s between tips in a meeting.")
                                    .arg(t.noSmileSeconds)

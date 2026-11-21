@@ -22,7 +22,7 @@
 #include "ai/AiClient.h"
 #include "ai/SpeechTipSource.h"
 #include "ai/VisionTipSource.h"
-#include "companion/CompanionWindow.h"
+#include "companion/CompanionClient.h"
 #include "companion/SmileyPainter.h"
 #include "core/AppSettings.h"
 #include "core/DemoTipSource.h"
@@ -31,6 +31,7 @@
 #include "core/SessionController.h"
 #include "sensors/CameraMonitor.h"
 #include "sensors/MicrophoneMonitor.h"
+#include "ui/Theme.h"
 #include "ui/Widgets.h"
 
 MainWindow::MainWindow(QWidget *parent)
@@ -39,7 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_ai(new AiClient(this))
     , m_camera(new CameraMonitor(this))
     , m_mic(new MicrophoneMonitor(this))
-    , m_companion(new CompanionWindow)
+    , m_companion(new CompanionClient(this))
     , m_pages(new QStackedWidget(this))
 {
     setWindowTitle(tr("SMILE"));
@@ -56,7 +57,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto *demo = new DemoTipSource;
     m_controller->addTipSource(demo);
 
-    auto *training = new TrainingPage(m_controller, m_ai);
+    auto *training = new TrainingPage(m_controller, m_ai, m_mic);
     auto *preMeet = new PreMeetPage(m_camera, m_ai);
     auto *meet = new MeetPage(m_controller, demo);
     auto *postMeet = new PostMeetPage(m_ai);
@@ -92,9 +93,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_controller, &SessionController::tipRaised, this, [this](const Tip &tip) {
         if (m_controller->mode() == SessionMode::Meeting && tip.severity == TipSeverity::Positive)
             return;
+        if (m_controller->mode() == SessionMode::Simulation)
+            return; // the avatar is the other participant; tips go to the report
         m_companion->showTip(tip);
     });
-    connect(m_companion, &CompanionWindow::liveTipPresented, this, [this](const Tip &tip) {
+    connect(m_companion, &CompanionClient::liveTipPresented, this, [this](const Tip &tip) {
         if (m_controller->isRunning() && m_controller->mode() == SessionMode::Meeting
             && tip.severity == TipSeverity::Warning && tip.source != QLatin1String("demo")
             && AppSettings::instance().hapticFeedbackEnabled()) {
@@ -105,8 +108,22 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_controller, &SessionController::tipLogged, this, [](const Tip &tip) {
         LiveSignals::instance().addEvent(LiveSignals::Event::Tip, tip.text, tip.reason);
     });
+    // The optional section timer next to the avatar
+    m_timerTick = new QTimer(this);
+    m_timerTick->setInterval(500);
+    connect(m_timerTick, &QTimer::timeout, this, &MainWindow::updateCompanionTimer);
+    connect(&AppSettings::instance(), &AppSettings::changed, this, [this] {
+        m_companion->reloadSettings();
+        updateCompanionTimer();
+    });
+
     connect(m_controller, &SessionController::runningChanged, this, [this](bool running) {
         m_companion->setSessionActive(running);
+        if (running)
+            m_timerTick->start();
+        else
+            m_timerTick->stop();
+        updateCompanionTimer();
         const bool meeting = running && m_controller->mode() == SessionMode::Meeting;
         const AppSettings::Thresholds t = AppSettings::instance().thresholds();
         m_companion->setMinimumGap((meeting ? t.meetingGapSeconds : t.trainingGapSeconds) * 1000);
@@ -121,15 +138,17 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
     connect(m_controller, &SessionController::finished, this, [this, postMeet](const SessionReport &report) {
+        if (report.mode == SessionMode::Practice || report.mode == SessionMode::Simulation)
+            return; // shown in the Training tab that ran them
         postMeet->showReport(report);
         showPage(PostMeetPageIndex);
         bringToFront();
     });
 
-    connect(m_companion, &CompanionWindow::openMainWindowRequested, this, &MainWindow::bringToFront);
-    connect(m_companion, &CompanionWindow::nextPointRequested, m_controller, &SessionController::nextPoint);
-    connect(m_companion, &CompanionWindow::endSessionRequested, m_controller, &SessionController::stop);
-    connect(m_companion, &CompanionWindow::debugViewRequested, this, &MainWindow::showDebug);
+    connect(m_companion, &CompanionClient::openMainWindowRequested, this, &MainWindow::bringToFront);
+    connect(m_companion, &CompanionClient::nextPointRequested, m_controller, &SessionController::nextPoint);
+    connect(m_companion, &CompanionClient::endSessionRequested, m_controller, &SessionController::stop);
+    connect(m_companion, &CompanionClient::debugViewRequested, this, &MainWindow::showDebug);
 
     showPage(TrainingPageIndex);
 }
@@ -137,7 +156,40 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete m_debug;
-    delete m_companion;
+}
+
+void MainWindow::updateCompanionTimer()
+{
+    const bool show = m_controller->isRunning() && AppSettings::instance().sectionTimer();
+    m_companion->setTimerVisible(show);
+    if (!show)
+        return;
+
+    const Agenda &agenda = m_controller->activeAgenda();
+    const int index = m_controller->currentIndex();
+    if (index < 0 || index >= agenda.size())
+        return;
+
+    SectionTimerInfo info;
+    info.running = true;
+    info.section = agenda.at(index).title;
+    info.index = index;
+    info.count = int(agenda.size());
+    info.elapsedSeconds = m_controller->elapsedOnCurrent();
+    info.targetSeconds = agenda.at(index).targetSeconds;
+    // Behind/ahead: how the earlier sections went, plus any overrun now
+    int delta = 0;
+    for (int i = 0; i < index; ++i)
+        if (agenda.at(i).targetSeconds > 0)
+            delta += agenda.at(i).actualSeconds - agenda.at(i).targetSeconds;
+    if (info.targetSeconds > 0)
+        delta += qMax(0, info.elapsedSeconds - info.targetSeconds);
+    info.scheduleDeltaSeconds = delta;
+    const AppSettings &s = AppSettings::instance();
+    info.status = s.useMicrophone() ? tr("Listening · Live feedback active")
+                  : s.useCamera()   ? tr("Watching · Live feedback active")
+                                    : tr("Timing only");
+    m_companion->setTimerInfo(info);
 }
 
 void MainWindow::showDebug()
@@ -172,7 +224,7 @@ QWidget *MainWindow::buildNavigation()
         {Icons::Icon::Training, tr("Training")},
         {Icons::Icon::PreMeet, tr("Pre-Meet")},
         {Icons::Icon::Meet, tr("Meet")},
-        {Icons::Icon::PostMeet, tr("Post-Meet")},
+        {Icons::Icon::PostMeet, tr("Results")},
     };
     for (int i = 0; i < items.size(); ++i) {
         auto *button = new NavButton(items[i].first, items[i].second);
@@ -187,6 +239,15 @@ QWidget *MainWindow::buildNavigation()
     group->addButton(settings, SettingsPageIndex);
     m_nav.append(settings);
     v->addWidget(settings);
+    auto *themeToggle = new NavButton(Icons::Icon::Eye, Theme::colors().dark ? tr("Light mode") : tr("Dark mode"));
+    themeToggle->setCheckable(false);
+    connect(themeToggle, &QAbstractButton::clicked, this, [themeToggle] {
+        const bool toDark = !Theme::colors().dark;
+        AppSettings::instance().setThemeMode(toDark ? 2 : 1);
+        Theme::reapply();
+        themeToggle->setText(toDark ? tr("Light mode") : tr("Dark mode"));
+    });
+    v->addWidget(themeToggle);
     auto *about = new NavButton(Icons::Icon::Info, tr("About"));
     about->setCheckable(false);
     connect(about, &QAbstractButton::clicked, this, &MainWindow::showAbout);

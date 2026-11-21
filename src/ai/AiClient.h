@@ -33,6 +33,13 @@ public:
     // Transcribe a WAV file (16 kHz mono).
     void transcribe(const QByteArray &wav, TextCallback done);
 
+    // Text to speech (WAV, 16-bit mono 24 kHz) for the simulation avatar.
+    using AudioCallback = std::function<void(const QByteArray &wav, const QString &error)>;
+    void speak(const QString &text, const QString &voice, AudioCallback done);
+
+    // Chat with a full message history (role/content objects).
+    void chatMessages(const QJsonArray &messages, int maxTokens, TextCallback done);
+
     // Quick check that the key works.
     void testConnection(TextCallback done);
 

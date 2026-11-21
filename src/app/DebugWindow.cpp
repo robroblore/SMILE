@@ -13,6 +13,7 @@
 #include "core/AppSettings.h"
 #include "core/SessionController.h"
 #include "sensors/CameraMonitor.h"
+#include "vision/FaceDetector.h"
 #include "sensors/MicrophoneMonitor.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
@@ -192,7 +193,8 @@ void DebugWindow::refresh()
                          && (!session || v.lookingLocal || std::abs(face.pitch - v.pitchBaseline) < 0.16f);
     m_preview->setFace(face, looking);
     if (!m_camera->faceTrackingAvailable())
-        m_cameraStats->setText(tr("This build has no local face tracker; the cloud AI does all face analysis."));
+        m_cameraStats->setText(tr("Local face tracking is off (%1). The cloud AI does all face analysis.")
+                                   .arg(FaceDetector::libraryError()));
     else
         m_cameraStats->setText(tr("Camera %1 · %2 fps shown · conversion %3 ms · face detection %4 ms (YuNet, ~15×/s) · %5")
                                    .arg(m_camera->formatDescription().isEmpty() ? tr("starting…") : m_camera->formatDescription())

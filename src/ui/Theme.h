@@ -35,12 +35,21 @@ struct Colors {
     QColor caution;
     QColor critical;
     QColor orange;         // "needs work" rating
+    QColor nav;            // navigation pane
+    QColor button;         // secondary buttons
+    QColor buttonHover;
+    QColor shadow;         // card shadow
 };
 
 const Colors &colors();
 
 // Sets style, palette, font and stylesheet. Call once after QApplication exists.
+// Follows AppSettings::themeMode(): 0 system, 1 light (white & blue), 2 dark.
 void apply(QApplication &app);
+void reapply(); // after the theme setting changes
+
+// Soft drop shadow for a card (light theme only)
+void addShadow(QWidget *widget);
 
 // Re-polish a widget after changing a dynamic property used by the stylesheet.
 void repolish(QWidget *widget);

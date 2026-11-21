@@ -2,10 +2,11 @@
 
 #include <QList>
 #include <QMainWindow>
+#include <QTimer>
 
 class AiClient;
 class CameraMonitor;
-class CompanionWindow;
+class CompanionClient;
 class DebugWindow;
 class MicrophoneMonitor;
 class NavButton;
@@ -36,14 +37,16 @@ private:
     void showAbout();
     void previewTip();
     void showDebug();
+    void updateCompanionTimer();
 
     SessionController *m_controller;
     AiClient *m_ai;
     CameraMonitor *m_camera;
     MicrophoneMonitor *m_mic;
-    CompanionWindow *m_companion; // top-level window, owned here
+    CompanionClient *m_companion; // the floating avatar (separate process)
     QStackedWidget *m_pages;
     QList<NavButton *> m_nav;
     QSystemTrayIcon *m_tray = nullptr;
     DebugWindow *m_debug = nullptr;
+    QTimer *m_timerTick = nullptr;
 };

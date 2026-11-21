@@ -5,10 +5,12 @@
 
 class AgendaEditor;
 class AiClient;
+class MicrophoneMonitor;
+class QStackedWidget;
 class QLabel;
 class QPlainTextEdit;
 class QPushButton;
-class QSpinBox;
+class DurationEdit;
 class SessionController;
 class SessionRunWidget;
 
@@ -19,7 +21,7 @@ class TrainingPage : public QWidget
     Q_OBJECT
 
 public:
-    TrainingPage(SessionController *controller, AiClient *ai, QWidget *parent = nullptr);
+    TrainingPage(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, QWidget *parent = nullptr);
 
 private:
     void setBulletMode(bool bullets);
@@ -34,7 +36,7 @@ private:
     QPlainTextEdit *m_speech;
     QPushButton *m_textMode;
     QPushButton *m_bulletMode;
-    QSpinBox *m_target;
+    DurationEdit *m_target;
     QPushButton *m_structure;
     QLabel *m_structureStatus;
     QLabel *m_wordCount;
@@ -46,4 +48,5 @@ private:
     SessionRunWidget *m_run;
     QTimer m_saveTimer;
     bool m_bullets = false;
+    QStackedWidget *m_tabs = nullptr;
 };

@@ -28,6 +28,8 @@ Face approach(const Face &c, const Face &t, qreal rate)
     f.lookX = lerp(c.lookX, t.lookX, rate);
     f.lookY = lerp(c.lookY, t.lookY, rate);
     f.squash = lerp(c.squash, t.squash, rate);
+    f.mouthOpen = lerp(c.mouthOpen, t.mouthOpen, qMin<qreal>(1.0, rate * 3.0)); // lips move fast
+    f.browRaise = lerp(c.browRaise, t.browRaise, rate);
     return f;
 }
 
@@ -101,6 +103,21 @@ void paint(QPainter &p, const QRectF &rect, const Face &face)
         p.drawEllipse(centre + QPointF(-eyeRx * 0.3, eyeRy * 0.35 * open), eyeRx * 0.16, eyeRx * 0.16 * open);
     }
 
+    // Raised brows: curious / asking a question
+    if (face.browRaise > 0.04 && face.worry <= 0.04) {
+        QColor brow = kInk;
+        brow.setAlphaF(qMin<qreal>(1.0, face.browRaise * 1.4));
+        p.setPen(QPen(brow, w * 0.026, Qt::SolidLine, Qt::RoundCap));
+        p.setBrush(Qt::NoBrush);
+        for (qreal fx : {0.36, 0.64}) {
+            const QPointF c = at(fx, 0.27 - 0.04 * face.browRaise);
+            QPainterPath b;
+            b.moveTo(c + QPointF(-w * 0.07, h * 0.015));
+            b.quadTo(c + QPointF(0, -h * 0.035), c + QPointF(w * 0.07, h * 0.015));
+            p.drawPath(b);
+        }
+    }
+
     // Eyebrows (only when worried)
     if (face.worry > 0.04) {
         QColor brow = kInk;
@@ -126,8 +143,27 @@ void paint(QPainter &p, const QRectF &rect, const Face &face)
     const QPointF right(cx + halfW, mouthY - h * 0.02 * s);
     const qreal depth = h * 0.17 * s;
 
-    if (s > 0.55) {
-        const qreal openness = (s - 0.55) / 0.45; // 0..1
+    const qreal talk = qBound<qreal>(0.0, face.mouthOpen, 1.0);
+    if (talk > 0.04 && s <= 0.55) {
+        // Talking: an open mouth whose height follows the voice
+        QPainterPath mouth;
+        const qreal top = mouthY - h * 0.02 * s - h * 0.012 * talk;
+        const qreal bottom = mouthY + h * (0.03 + 0.15 * talk) + depth * 0.4;
+        const qreal half = halfW * (0.75 + 0.15 * (1.0 - talk));
+        mouth.moveTo(cx - half, mouthY);
+        mouth.cubicTo(cx - half * 0.5, top, cx + half * 0.5, top, cx + half, mouthY);
+        mouth.cubicTo(cx + half * 0.6, bottom, cx - half * 0.6, bottom, cx - half, mouthY);
+        p.setPen(QPen(kInk, w * 0.028, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.setBrush(kMouth);
+        p.drawPath(mouth);
+        p.save();
+        p.setClipPath(mouth);
+        p.setPen(Qt::NoPen);
+        p.setBrush(kTongue);
+        p.drawEllipse(QPointF(cx, bottom), half * 0.55, h * 0.06);
+        p.restore();
+    } else if (s > 0.55) {
+        const qreal openness = qMax((s - 0.55) / 0.45, talk); // 0..1
         QPainterPath mouth;
         mouth.moveTo(left);
         mouth.cubicTo(left + QPointF(halfW * 0.5, h * 0.03 * openness), right + QPointF(-halfW * 0.5, h * 0.03 * openness),

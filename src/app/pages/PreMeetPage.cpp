@@ -2,19 +2,20 @@
 
 #include <QHBoxLayout>
 #include <QJsonArray>
-#include <cmath>
 #include <QJsonObject>
 #include <QLabel>
-#include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QTimer>
 #include <QVBoxLayout>
+#include <cmath>
 
 #include "ai/AiClient.h"
 #include "core/AppSettings.h"
 #include "sensors/CameraMonitor.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
+#include "vision/FaceDetector.h"
 
 namespace {
 // Checklist rows the camera check can verify, in order
@@ -27,36 +28,43 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     , m_ai(ai)
     , m_preview(new CameraPreview)
     , m_checkButton(new QPushButton(tr("Check my setup")))
-    , m_result(Ui::label(QString(), "secondary"))
+    , m_status(Ui::label(QString(), "secondary"))
+    , m_issues(new QVBoxLayout)
+    , m_tech(Ui::label(QString(), "secondary"))
     , m_progressText(Ui::label(QString(), "secondary"))
-    , m_progress(new QProgressBar)
 {
-    // ---- Camera card
-    auto *cameraCard = new Card(tr("How you look on camera"));
-    auto *cameraRow = new QHBoxLayout;
-    cameraRow->setSpacing(20);
-    m_preview->setFixedSize(360, 240);
-    cameraRow->addWidget(m_preview, 0, Qt::AlignTop);
+    const Theme::Colors &c = Theme::colors();
 
-    auto *side = new QVBoxLayout;
-    side->setSpacing(10);
-    QLabel *intro = Ui::label(tr("This is a private preview. SMILE only looks; it never changes the video "
-                                 "the others see."),
-                              "secondary");
-    intro->setWordWrap(true);
-    side->addWidget(intro);
+    // ---- The camera: the main focus of the page
+    auto *cameraCard = new Card;
+    cameraCard->setGraphicsEffect(nullptr); // no shadow effect: keeps the 30 fps preview smooth
+    cameraCard->body()->setContentsMargins(16, 16, 16, 16);
+    m_preview->setOverlay(true);
+    m_preview->setMinimumSize(560, 315);
+    m_preview->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_preview->setFixedHeight(470);
+    cameraCard->body()->addWidget(m_preview);
+
+    auto *actions = new QHBoxLayout;
     m_checkButton->setObjectName(QStringLiteral("accent"));
-    m_checkButton->setIcon(Icons::icon(Icons::Icon::Sparkle, Theme::colors().onAccent, 14));
+    m_checkButton->setIcon(Icons::icon(Icons::Icon::Sparkle, c.onAccent, 14));
     m_checkButton->setCursor(Qt::PointingHandCursor);
-    side->addWidget(m_checkButton, 0, Qt::AlignLeft);
-    m_result->setWordWrap(true);
-    m_result->setTextFormat(Qt::RichText);
-    side->addWidget(m_result);
-    side->addStretch();
-    cameraRow->addLayout(side, 1);
-    cameraCard->body()->addLayout(cameraRow);
+    m_checkButton->setMinimumHeight(38);
+    m_status->setWordWrap(true);
+    actions->addWidget(m_checkButton);
+    actions->addSpacing(12);
+    actions->addWidget(m_status, 1);
+    cameraCard->body()->addLayout(actions);
+    m_issues->setSpacing(6);
+    cameraCard->body()->addLayout(m_issues);
 
-    // ---- Checklist
+    QLabel *privacy = Ui::label(tr("Private preview: SMILE only looks and never changes the video others see. "
+                                   "Green points show what the face tracker sees; red boxes mark things to fix."),
+                                "secondary");
+    privacy->setWordWrap(true);
+    cameraCard->body()->addWidget(privacy);
+
+    // ---- Collapsible: checklist
     struct Entry {
         QString title;
         QString hint;
@@ -68,10 +76,11 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
         {tr("Nothing distracting in view"), tr("Notes, clutter and screens out of the frame.")},
         {tr("Sitting upright"), tr("Feet flat, shoulders relaxed, back against the chair.")},
         {tr("Notifications muted"), tr("Phone silent, chat and email notifications off.")},
-        {tr("Agenda ready"), tr("Your points are listed on the Training page.")},
+        {tr("Agenda ready"), tr("Your sections are set on the Training page.")},
     };
-    auto *checklist = new Card(tr("Readiness checklist"));
-    checklist->body()->setSpacing(2);
+    auto *checklist = new Expander(tr("Readiness checklist"), tr("Ticked automatically by the camera check, or by you."), -1,
+                                   c.accent, QString());
+    checklist->body()->addWidget(m_progressText);
     for (const Entry &entry : entries) {
         auto *check = new CheckCircle;
         checklist->body()->addWidget(new OptionRow(entry.title, entry.hint, check, true));
@@ -79,22 +88,27 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
         m_items.append(check);
     }
 
-    // ---- Ready footer
-    auto *ready = new Card;
-    auto *readyRow = new QHBoxLayout;
-    auto *progressCol = new QVBoxLayout;
-    progressCol->setSpacing(8);
-    progressCol->addWidget(m_progressText);
-    m_progress->setTextVisible(false);
-    progressCol->addWidget(m_progress);
-    auto *go = new QPushButton(tr("Go to Meet"));
+    // ---- Collapsible: meeting options and technical details
+    auto *options = new Expander(tr("Meeting options and camera details"), QString(), -1, c.accent, QString());
+    auto *timer = new ToggleSwitch;
+    timer->setChecked(AppSettings::instance().sectionTimer());
+    connect(timer, &QAbstractButton::toggled, &AppSettings::instance(), &AppSettings::setSectionTimer);
+    connect(&AppSettings::instance(), &AppSettings::changed, timer, [timer] {
+        const QSignalBlocker block(timer);
+        timer->setChecked(AppSettings::instance().sectionTimer());
+    });
+    options->body()->addWidget(new OptionRow(tr("Section timer next to SMILE"),
+                                             tr("Keep a small timer by the avatar: current section, time and whether "
+                                                "you're on track."),
+                                             timer));
+    m_tech->setWordWrap(true);
+    options->body()->addWidget(m_tech);
+
+    auto *go = new QPushButton(tr("I'm ready: go to Meet"));
     go->setObjectName(QStringLiteral("accent"));
-    go->setIcon(Icons::icon(Icons::Icon::Next, Theme::colors().onAccent, 14));
+    go->setIcon(Icons::icon(Icons::Icon::Next, c.onAccent, 14));
     go->setCursor(Qt::PointingHandCursor);
-    readyRow->addLayout(progressCol, 1);
-    readyRow->addSpacing(24);
-    readyRow->addWidget(go);
-    ready->body()->addLayout(readyRow);
+    go->setMinimumHeight(38);
 
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
@@ -103,7 +117,8 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     layout->addWidget(Ui::pageHeader(tr("Pre-Meet"), tr("A one-minute check so you look your best before you join.")));
     layout->addWidget(cameraCard);
     layout->addWidget(checklist);
-    layout->addWidget(ready);
+    layout->addWidget(options);
+    layout->addWidget(go, 0, Qt::AlignRight);
     layout->addStretch();
 
     auto *outer = new QVBoxLayout(this);
@@ -117,13 +132,24 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
             m_preview->setFrame(frame);
     });
     connect(m_camera, &CameraMonitor::faceReady, this, [this](const FaceFrame &face) {
-        if (isVisible() && AppSettings::instance().debugMode())
-            m_preview->setFace(face, face.found && std::abs(face.yaw) < 0.22f);
+        if (isVisible())
+            m_preview->setFace(face, face.found && std::abs(face.yaw) < 0.24f);
     });
-    connect(m_camera, &CameraMonitor::errorOccurred, this, [this](const QString &message) {
-        m_preview->setMessage(message);
-    });
+    connect(m_camera, &CameraMonitor::errorOccurred, this, [this](const QString &message) { m_preview->setMessage(message); });
     connect(&AppSettings::instance(), &AppSettings::changed, this, &PreMeetPage::updateCameraState);
+
+    auto *techTimer = new QTimer(this);
+    techTimer->setInterval(1000);
+    connect(techTimer, &QTimer::timeout, this, [this] {
+        if (!isVisible())
+            return;
+        m_tech->setText(tr("Camera: %1 · %2 fps · face tracking: %3")
+                            .arg(m_camera->formatDescription().isEmpty() ? tr("starting…") : m_camera->formatDescription())
+                            .arg(m_camera->framesPerSecond(), 0, 'f', 0)
+                            .arg(m_camera->faceTrackingAvailable() ? tr("on this computer, ~15× per second")
+                                                                   : FaceDetector::libraryError()));
+    });
+    techTimer->start();
 
     updateProgress();
     updateCameraState();
@@ -133,7 +159,7 @@ QString PreMeetPage::checkPrompt()
 {
     return QStringLiteral(
         "You are helping someone get ready for an important video meeting (for example a job interview). "
-        "Look at this webcam frame and reply with ONLY a JSON object:\n"
+        "Look at this webcam frame. Be practical and fair. Reply with ONLY a JSON object:\n"
         "{\n"
         "  \"face_visible\": true|false,\n"
         "  \"eye_level\": true|false,          // camera roughly level with the eyes, face reasonably centred\n"
@@ -141,9 +167,11 @@ QString PreMeetPage::checkPrompt()
         "  \"collar_straight\": true|false,    // collar and clothing look tidy (true if not visible)\n"
         "  \"nothing_distracting\": true|false,// no notes, papers, clutter or distracting objects in view\n"
         "  \"upright\": true|false,            // sitting upright, not slouching\n"
-        "  \"reasons\": {\"<key of each false item>\": \"what exactly you saw that made it false\"},\n"
-        "  \"distractions\": [{\"label\": \"short name of the object\", \"box\": [x1, y1, x2, y2]}],  // 0..1 image coordinates\n"
-        "  \"advice\": \"one or two short, friendly sentences: the most important fix, or a compliment\"\n"
+        "  \"issues\": [{\"kind\": \"framing|lighting|collar|clutter|posture|background\",\n"
+        "              \"box\": [x1, y1, x2, y2],   // 0..1 image coordinates of the area concerned\n"
+        "              \"message\": \"what to change, short and specific\"}],\n"
+        "  \"good\": [\"up to 3 short things that already look good\"],\n"
+        "  \"advice\": \"one friendly sentence: the most important fix, or a compliment\"\n"
         "}");
 }
 
@@ -168,7 +196,6 @@ void PreMeetPage::hideEvent(QHideEvent *event)
 
 void PreMeetPage::updateCameraState()
 {
-    m_preview->setOverlay(AppSettings::instance().debugMode());
     const bool camera = AppSettings::instance().useCamera();
     if (!camera) {
         m_preview->setMessage(tr("The camera is turned off in Settings."));
@@ -183,90 +210,96 @@ void PreMeetPage::updateCameraState()
     const bool cloud = m_ai->isConfigured() && AppSettings::instance().cloudAnalysis();
     m_checkButton->setEnabled(camera && cloud);
     m_checkButton->setToolTip(cloud ? QString() : tr("Add your AI key on the Settings page to use the automatic check."));
-    if (!cloud)
-        m_result->setText(tr("Add an AI key in Settings and SMILE will check your framing, light, collar and "
-                             "background for you."));
+    if (!cloud && m_status->text().isEmpty())
+        m_status->setText(tr("Add an AI key in Settings and SMILE will check your framing, light, collar and background."));
+}
+
+void PreMeetPage::showIssues(const QStringList &issues, const QStringList &good, const QString &advice)
+{
+    while (QLayoutItem *item = m_issues->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+    const Theme::Colors &c = Theme::colors();
+    m_status->setText(advice);
+    int n = 1;
+    for (const QString &issue : issues) {
+        QLabel *l = Ui::label(QStringLiteral("<span style='background:%1; color:white; border-radius:9px; padding:0 6px; "
+                                             "font-weight:700'>&nbsp;%2&nbsp;</span>&nbsp; %3")
+                                  .arg(Theme::css(c.critical))
+                                  .arg(n++)
+                                  .arg(issue.toHtmlEscaped()));
+        l->setTextFormat(Qt::RichText);
+        l->setWordWrap(true);
+        m_issues->addWidget(l);
+    }
+    if (!good.isEmpty()) {
+        QLabel *l = Ui::label(QStringLiteral("<span style='color:%1; font-weight:700'>✓</span>&nbsp; %2")
+                                  .arg(Theme::css(c.success), good.join(QStringLiteral(" · ")).toHtmlEscaped()));
+        l->setTextFormat(Qt::RichText);
+        l->setWordWrap(true);
+        m_issues->addWidget(l);
+    }
 }
 
 void PreMeetPage::runCheck()
 {
     const QImage frame = m_camera->latestFrame();
     if (frame.isNull()) {
-        m_result->setText(tr("Waiting for the camera…"));
+        m_status->setText(tr("Waiting for the camera…"));
         return;
     }
     m_checkButton->setEnabled(false);
     m_checkButton->setText(tr("Looking…"));
-    m_result->setText(tr("Analysing a snapshot. This takes a second or two."));
+    m_status->setText(tr("Analysing a snapshot…"));
+    m_preview->setMarked({});
 
     m_ai->analyzeImage(frame, checkPrompt(), [this](const QJsonObject &r, const QString &error) {
         m_checkButton->setEnabled(true);
         m_checkButton->setText(tr("Check again"));
         if (!error.isEmpty()) {
-            m_result->setText(QStringLiteral("<span style='color:%1'>%2</span>")
-                                  .arg(Theme::css(Theme::colors().critical), error.toHtmlEscaped()));
+            m_status->setText(error);
             return;
         }
         if (!r.value(QLatin1String("face_visible")).toBool(true)) {
-            m_result->setText(tr("I can't see your face. Move into the frame and try again."));
+            showIssues({tr("Move into the frame so your face is visible.")}, {}, tr("I can't see your face."));
             return;
         }
 
-        struct Check {
-            const char *key;
-            int item;
-            QString issue;
-        };
-        const QList<Check> checks = {
-            {"eye_level", EyeLevel, tr("Raise or lower the camera to eye level and centre your face.")},
-            {"lighting_good", Lighting, tr("Improve your lighting: face a window or lamp.")},
-            {"collar_straight", Collar, tr("Straighten your collar or clothing.")},
-            {"nothing_distracting", Distractions, tr("Move notes or clutter out of view.")},
-            {"upright", Upright, tr("Sit up straight.")},
-        };
-        const bool debug = AppSettings::instance().debugMode();
-        const QJsonObject reasons = r.value(QLatin1String("reasons")).toObject();
-        QStringList issues;
-        for (const Check &check : checks) {
-            const bool ok = r.value(QLatin1String(check.key)).toBool();
-            m_items[check.item]->setChecked(ok);
-            if (ok)
-                continue;
-            QString issue = check.issue;
-            const QString why = reasons.value(QLatin1String(check.key)).toString();
-            if (debug && !why.isEmpty())
-                issue += QLatin1Char('\n') + tr("Why: %1").arg(why);
-            issues << issue;
-        }
+        // Tick what the camera could verify
+        const QList<QPair<const char *, int>> checks = {{"eye_level", EyeLevel},
+                                                        {"lighting_good", Lighting},
+                                                        {"collar_straight", Collar},
+                                                        {"nothing_distracting", Distractions},
+                                                        {"upright", Upright}};
+        for (const auto &[key, item] : checks)
+            m_items[item]->setChecked(r.value(QLatin1String(key)).toBool());
+
+        // Mark every issue in red on the preview, numbered like the list below
         QList<CameraPreview::Marked> marked;
-        QStringList objects;
-        for (const QJsonValue &v : r.value(QLatin1String("distractions")).toArray()) {
+        QStringList issues;
+        for (const QJsonValue &v : r.value(QLatin1String("issues")).toArray()) {
             const QJsonObject o = v.toObject();
+            const QString message = o.value(QLatin1String("message")).toString();
+            if (message.isEmpty())
+                continue;
+            issues << message;
             const QJsonArray b = o.value(QLatin1String("box")).toArray();
-            const QString label = o.value(QLatin1String("label")).toString();
-            objects << label;
             if (b.size() == 4) {
-                const QRectF box(QPointF(b[0].toDouble(), b[1].toDouble()), QPointF(b[2].toDouble(), b[3].toDouble()));
-                if (box.isValid() && box.width() <= 1.0 && box.height() <= 1.0)
-                    marked.append({box.normalized(), label});
+                QRectF box(QPointF(b[0].toDouble(), b[1].toDouble()), QPointF(b[2].toDouble(), b[3].toDouble()));
+                box = box.normalized().intersected(QRectF(0, 0, 1, 1));
+                if (box.width() > 0.01 && box.height() > 0.01)
+                    marked.append({box, QStringLiteral("%1  %2").arg(issues.size()).arg(o.value(QLatin1String("kind")).toString())});
             }
         }
-        m_preview->setMarked(debug ? marked : QList<CameraPreview::Marked>());
-        if (debug && !objects.isEmpty())
-            issues << tr("Detected in view: %1").arg(objects.join(QStringLiteral(", ")));
-
-        const Theme::Colors &c = Theme::colors();
-        QString html = QStringLiteral("<p>%1</p>").arg(r.value(QLatin1String("advice")).toString().toHtmlEscaped());
-        if (issues.isEmpty()) {
-            html += QStringLiteral("<p style='color:%1'><b>%2</b></p>")
-                        .arg(Theme::css(c.success), tr("Everything the camera can see looks good."));
-        } else {
-            html += QStringLiteral("<ul style='margin-left:-20px'>");
-            for (const QString &issue : std::as_const(issues))
-                html += QStringLiteral("<li>%1</li>").arg(issue.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br><i>")) + (issue.contains(QLatin1Char('\n')) ? QStringLiteral("</i>") : QString()));
-            html += QStringLiteral("</ul>");
-        }
-        m_result->setText(html);
+        QStringList good;
+        for (const QJsonValue &v : r.value(QLatin1String("good")).toArray())
+            good << v.toString();
+        m_preview->setMarked(marked);
+        QString advice = r.value(QLatin1String("advice")).toString();
+        if (issues.isEmpty())
+            advice = tr("Everything the camera can see looks good. %1").arg(advice);
+        showIssues(issues, good, advice);
     });
 }
 
@@ -276,13 +309,5 @@ void PreMeetPage::updateProgress()
     for (const QAbstractButton *item : std::as_const(m_items))
         done += item->isChecked() ? 1 : 0;
     const int total = int(m_items.size());
-    m_progressText->setText(done == total ? tr("All set. You're ready to join.")
-                                          : tr("%1 of %2 ready").arg(done).arg(total));
-    m_progress->setRange(0, total);
-    m_progress->setValue(done);
-    const QString state = done == total ? QStringLiteral("done") : QStringLiteral("normal");
-    if (m_progress->property("state").toString() != state) {
-        m_progress->setProperty("state", state);
-        Theme::repolish(m_progress);
-    }
+    m_progressText->setText(done == total ? tr("All set. You're ready to join.") : tr("%1 of %2 ready").arg(done).arg(total));
 }

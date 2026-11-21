@@ -29,6 +29,11 @@ public:
         int smilingFused = -1;        // what SMILE believes now
         QString smilingSource;        // "cloud", "local", "unknown"
         float engagement = 0;         // 0..1
+        QString expression;           // warm, positive, neutral_relaxed, neutral_flat, tense, unapproachable
+        float expressionConfidence = 0;
+        QString gaze;                 // camera, notes (down), away (side), screen
+        float movement = 0;           // face movement, face-heights per second
+        QString hands;                // cloud: resting, natural_gesture, distracting, ...
         QJsonObject cloud;            // last cloud answer
         qint64 cloudAgeMs = -1;
         int cloudLatencyMs = 0;
@@ -53,6 +58,10 @@ public:
         int wpmLocal = 0;         // estimated from syllables, calibrated by Whisper
         int wpmWhisper = 0;       // from the last transcript
         int fillersLastMinute = 0;
+        float speechDb = -90;     // typical loudness while speaking (last ~20 s)
+        float baselineDb = -90;   // your usual loudness this session
+        int pausesPerMinute = 0;
+        QString lastFlaggedWord;
         QString lastFillers;      // e.g. "um ×3, uh ×1"
         QString lastTranscript;
         int transcribeLatencyMs = 0;

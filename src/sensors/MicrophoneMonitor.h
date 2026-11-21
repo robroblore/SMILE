@@ -32,6 +32,7 @@ public:
     qint64 speechMs() const { return m_speechMs; }
     qint64 currentRunMs() const { return m_inRun ? m_runMs : 0; } // talking without a real pause
     qint64 longestRunMs() const { return qMax(m_longestRunMs, currentRunMs()); }
+    int pauseCount() const { return m_pauses; } // natural pauses (0.4-2.5 s) between phrases
 
     // Live readings for the debug view
     double levelDb() const { return m_levelDb; }
@@ -41,6 +42,14 @@ public:
     double syllablesPerSecond() const;
     int recentSpeechMs() const;
 
+    // Turn-taking (meeting simulation): when on, each spoken sentence is
+    // collected and utteranceReady is emitted once you pause.
+    void setUtterances(bool on);
+    void setIgnoreInput(bool ignore); // e.g. while the avatar is speaking
+    QByteArray currentUtteranceWav() const;
+    int currentUtteranceMs() const { return m_inUtt ? m_uttSpeechMs : 0; }
+    void discardUtterance();
+
     // When on, audio is gathered into ~9-15 s chunks and chunkReady is emitted.
     void setChunking(bool on);
 
@@ -48,6 +57,7 @@ signals:
     void levelChanged(qreal level);
     void speakingChanged(bool speaking);
     void chunkReady(const QByteArray &wav, int durationMs, int speechMs);
+    void utteranceReady(const QByteArray &wav, int speechMs);
     void activeChanged(bool active);
     void errorOccurred(const QString &message);
 
@@ -85,6 +95,7 @@ private:
     qint64 m_runMs = 0;
     qint64 m_pauseMs = 0;
     qint64 m_longestRunMs = 0;
+    int m_pauses = 0;
 
     // Syllable detection on the energy envelope (30 ms frames)
     double m_levelDb = -90;
@@ -94,6 +105,15 @@ private:
     qint64 m_lastSyllable = -100;
     QVector<quint8> m_window;        // last ~10 s: bit0 speaking, bit1 syllable
     int m_windowPos = 0;
+
+    // Utterances
+    bool m_utterances = false;
+    bool m_ignore = false;
+    bool m_inUtt = false;
+    QVector<qint16> m_utt;
+    QVector<qint16> m_preroll;
+    int m_uttSpeechMs = 0;
+    int m_uttSilenceMs = 0;
 
     // Chunking for transcription
     bool m_chunking = false;

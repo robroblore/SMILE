@@ -62,6 +62,22 @@ public:
 
     bool debugMode() const;
     void setDebugMode(bool on);
+
+    // Small timer next to the floating avatar (off by default)
+    bool sectionTimer() const;
+    void setSectionTimer(bool on);
+    // Move to the next section automatically when you start talking about it
+    bool autoAdvance() const;
+    void setAutoAdvance(bool on);
+
+    // Appearance: 0 follow system, 1 light (white & blue), 2 dark
+    int themeMode() const;
+    void setThemeMode(int mode);
+
+    // Voice of the avatar in meeting simulations (Together "Kokoro" voices)
+    QString avatarVoice() const;
+    void setAvatarVoice(const QString &voice);
+    QString speechModel() const;
     bool hapticFeedbackEnabled() const;
     void setHapticFeedbackEnabled(bool on);
 
@@ -72,6 +88,8 @@ public:
     void setSpeechAsBullets(bool bullets);
     int targetMinutes() const;
     void setTargetMinutes(int minutes);
+    int targetSeconds() const;
+    void setTargetSeconds(int seconds);
     QString presentationType() const;
     void setPresentationType(const QString &type);
     QByteArray agendaJson() const;

@@ -59,7 +59,6 @@ jobs:
           # Qt Multimedia uses its bundled FFmpeg backend; drop the GStreamer
           # plugin so linuxdeploy doesn't need (or bundle) GStreamer.
           rm -f "$QT_ROOT_DIR"/plugins/multimedia/libgstreamermediaplugin.so
-          export LD_LIBRARY_PATH="$PWD/third_party/onnxruntime/lib:$LD_LIBRARY_PATH"
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt --output appimage \
             --library third_party/onnxruntime/lib/libonnxruntime.so.1 \
             --desktop-file AppDir/usr/share/applications/smile.desktop \
@@ -106,7 +105,7 @@ jobs:
           path: SMILE-windows-x64.zip
 
   macos:
-    name: macOS (dmg, Apple Silicon)
+    name: macOS (dmg, universal)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -123,28 +122,29 @@ jobs:
         run: python3 scripts/fetch_onnxruntime.py osx-arm64
 
       - name: Build
-        # ONNX Runtime ships an arm64 library for macOS, so the app is Apple Silicon only
+        # Universal app. The face tracker library is Apple Silicon only and is
+        # loaded at runtime; on Intel Macs SMILE uses the cloud AI instead.
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
           cmake --build build
 
       - name: Package
         run: |
-          # Put ONNX Runtime in the bundle under the name the app links to
+          # Bundle ONNX Runtime; SMILE loads it at runtime from Frameworks
           mkdir -p build/SMILE.app/Contents/Frameworks
           lib=third_party/onnxruntime/lib/libonnxruntime.dylib
           name=$(basename "$(otool -D "$lib" | tail -1)")
           cp "$lib" "build/SMILE.app/Contents/Frameworks/$name"
-          otool -L build/SMILE.app/Contents/MacOS/SMILE | grep -i onnx
+          ls -la build/SMILE.app/Contents/Frameworks
           macdeployqt build/SMILE.app
           # Not notarised: ad-hoc sign so it launches on Apple Silicon (right-click > Open the first time).
           codesign --force --deep --sign - build/SMILE.app
-          hdiutil create -volname SMILE -srcfolder build/SMILE.app -ov -format UDZO SMILE-macos-arm64.dmg
+          hdiutil create -volname SMILE -srcfolder build/SMILE.app -ov -format UDZO SMILE-macos-universal.dmg
 
       - uses: actions/upload-artifact@v4
         with:
           name: SMILE-macos
-          path: SMILE-macos-arm64.dmg
+          path: SMILE-macos-universal.dmg
 
   release:
     name: Publish release

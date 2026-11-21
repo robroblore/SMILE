@@ -6,7 +6,10 @@
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStyleHints>
+#include <QGraphicsDropShadowEffect>
 #include <QWidget>
+
+#include "core/AppSettings.h"
 
 namespace Theme {
 
@@ -14,31 +17,37 @@ namespace {
 
 Colors lightColors()
 {
+    // White & blue: white surfaces, light-blue secondary elements, strong blue
+    // for primary actions; green/orange/red only for performance feedback.
     Colors c;
     c.dark = false;
-    c.background = QColor(0xF3, 0xF3, 0xF3);
+    c.background = QColor(0xF5, 0xF8, 0xFD);
+    c.nav = QColor(0xEA, 0xF1, 0xFC);
     c.card = QColor(0xFF, 0xFF, 0xFF);
-    c.cardBorder = QColor(0xE5, 0xE5, 0xE5);
-    c.flyout = QColor(0xFC, 0xFC, 0xFC);
-    c.text = QColor(0x1A, 0x1A, 0x1A);
-    c.textSecondary = QColor(0x5D, 0x5D, 0x5D);
-    c.textDisabled = QColor(0xA0, 0xA0, 0xA0);
-    c.accent = QColor(0x00, 0x5F, 0xB8);
-    c.accentHover = QColor(0x19, 0x6E, 0xBF);
-    c.accentPressed = QColor(0x31, 0x7D, 0xC6);
+    c.cardBorder = QColor(0xDF, 0xE8, 0xF5);
+    c.flyout = QColor(0xFF, 0xFF, 0xFF);
+    c.text = QColor(0x10, 0x1F, 0x36);
+    c.textSecondary = QColor(0x53, 0x63, 0x7C);
+    c.textDisabled = QColor(0xA3, 0xAE, 0xBF);
+    c.accent = QColor(0x1F, 0x63, 0xE0);
+    c.accentHover = QColor(0x1A, 0x56, 0xC6);
+    c.accentPressed = QColor(0x16, 0x4A, 0xAD);
     c.onAccent = QColor(0xFF, 0xFF, 0xFF);
-    c.control = QColor(0xFB, 0xFB, 0xFB);
-    c.controlHover = QColor(0xF6, 0xF6, 0xF6);
-    c.controlPressed = QColor(0xF2, 0xF2, 0xF2);
-    c.controlBorder = QColor(0xE5, 0xE5, 0xE5);
-    c.controlBorderBottom = QColor(0xCC, 0xCC, 0xCC);
-    c.subtleHover = QColor(0, 0, 0, 10);
-    c.subtlePressed = QColor(0, 0, 0, 6);
-    c.track = QColor(0xD6, 0xD6, 0xD6);
-    c.success = QColor(0x0F, 0x7B, 0x0F);
+    c.control = QColor(0xFF, 0xFF, 0xFF);
+    c.controlHover = QColor(0xF6, 0xF9, 0xFF);
+    c.controlPressed = QColor(0xEC, 0xF2, 0xFD);
+    c.controlBorder = QColor(0xD5, 0xE1, 0xF2);
+    c.controlBorderBottom = QColor(0xBF, 0xCF, 0xE8);
+    c.button = QColor(0xE8, 0xF0, 0xFD);
+    c.buttonHover = QColor(0xDC, 0xE8, 0xFC);
+    c.subtleHover = QColor(0x1F, 0x63, 0xE0, 20);
+    c.subtlePressed = QColor(0x1F, 0x63, 0xE0, 12);
+    c.track = QColor(0xDC, 0xE6, 0xF5);
+    c.success = QColor(0x13, 0x8A, 0x43);
     c.caution = QColor(0x9D, 0x5D, 0x00);
-    c.critical = QColor(0xC4, 0x2B, 0x1C);
-    c.orange = QColor(0xD8, 0x6A, 0x00);
+    c.critical = QColor(0xD1, 0x34, 0x38);
+    c.orange = QColor(0xD9, 0x73, 0x1A);
+    c.shadow = QColor(0x10, 0x30, 0x70, 22);
     return c;
 }
 
@@ -69,10 +78,16 @@ Colors darkColors()
     c.caution = QColor(0xFC, 0xE1, 0x00);
     c.critical = QColor(0xFF, 0x80, 0x8A);
     c.orange = QColor(0xFF, 0xA9, 0x4D);
+    c.nav = c.background;
+    c.button = c.control;
+    c.buttonHover = c.controlHover;
+    c.shadow = QColor(0, 0, 0, 0);
     return c;
 }
 
 Colors g_colors = lightColors();
+
+QApplication *g_app = nullptr;
 
 bool systemPrefersDark()
 {
@@ -82,6 +97,11 @@ bool systemPrefersDark()
         return true;
     if (forced == "light")
         return false;
+    const int mode = AppSettings::instance().themeMode();
+    if (mode == 1)
+        return false;
+    if (mode == 2)
+        return true;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
 #else
@@ -93,22 +113,23 @@ QString styleSheet(const Colors &c)
 {
     QString s = QStringLiteral(R"(
 QWidget { color: @text; }
-#root, #navPane, QStackedWidget, #page { background: @bg; }
+#root, QStackedWidget, #page { background: @bg; }
+#navPane { background: @nav; }
 QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; border: none; }
 
 #pageTitle { font-size: 21pt; font-weight: 600; }
 #pageSubtitle, #secondary { color: @text2; }
-#card { background: @card; border: 1px solid @cardBorder; border-radius: 8px; }
+#card { background: @card; border: 1px solid @cardBorder; border-radius: 10px; }
 #cardTitle { font-size: 11.5pt; font-weight: 600; }
 #caption { color: @text2; font-size: 8.5pt; font-weight: 600; }
 #bigValue { font-size: 20pt; font-weight: 600; }
 #appTitle { font-size: 11pt; font-weight: 600; }
 
 QPushButton {
-    background: @control; border: 1px solid @controlBorder; border-bottom-color: @controlBorderBottom;
-    border-radius: 5px; padding: 6px 16px; min-height: 20px;
+    background: @button; border: 1px solid @controlBorder; border-bottom-color: @controlBorderBottom;
+    border-radius: 6px; padding: 6px 16px; min-height: 20px;
 }
-QPushButton:hover { background: @controlHover; }
+QPushButton:hover { background: @buttonHover; }
 QPushButton:pressed { background: @controlPressed; color: @text2; border-bottom-color: @controlBorder; }
 QPushButton:disabled { color: @textDisabled; background: @control; border-color: @controlBorder; }
 QPushButton#accent { background: @accent; color: @onAccent; border: 1px solid @accent; }
@@ -121,7 +142,7 @@ QPushButton#subtle:pressed { background: @subtlePressed; }
 
 QPushButton#segment { background: transparent; border: 1px solid transparent; padding: 5px 12px; }
 QPushButton#segment:hover { background: @subtleHover; }
-QPushButton#segment:checked { background: @control; border: 1px solid @controlBorder; border-bottom-color: @controlBorderBottom; font-weight: 600; }
+QPushButton#segment:checked { background: @control; color: @accent; border: 1px solid @controlBorder; border-bottom-color: @controlBorderBottom; }
 QPlainTextEdit, QTextEdit {
     background: @control; border: 1px solid @controlBorder; border-bottom: 1px solid @controlBorderBottom;
     border-radius: 6px; padding: 6px 8px; selection-background-color: @accent; selection-color: @onAccent;
@@ -184,6 +205,9 @@ QMessageBox { background: @bg; }
         {QStringLiteral("@controlBorder"), c.controlBorder},
         {QStringLiteral("@control"), c.control},
         {QStringLiteral("@subtleHover"), c.subtleHover},
+        {QStringLiteral("@buttonHover"), c.buttonHover},
+        {QStringLiteral("@button"), c.button},
+        {QStringLiteral("@nav"), c.nav},
         {QStringLiteral("@subtlePressed"), c.subtlePressed},
         {QStringLiteral("@track"), c.track},
         {QStringLiteral("@success"), c.success},
@@ -238,8 +262,26 @@ QString css(const QColor &color)
         .arg(color.alpha());
 }
 
+void reapply()
+{
+    if (g_app)
+        applyColors(*g_app);
+}
+
+void addShadow(QWidget *widget)
+{
+    if (g_colors.dark || g_colors.shadow.alpha() == 0)
+        return;
+    auto *effect = new QGraphicsDropShadowEffect(widget);
+    effect->setBlurRadius(22);
+    effect->setOffset(0, 3);
+    effect->setColor(g_colors.shadow);
+    widget->setGraphicsEffect(effect);
+}
+
 void apply(QApplication &app)
 {
+    g_app = &app;
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
 
     QFont font = app.font();
@@ -256,7 +298,10 @@ void apply(QApplication &app)
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, &app,
-                     [&app] { applyColors(app); });
+                     [&app] {
+                         if (AppSettings::instance().themeMode() == 0)
+                             applyColors(app);
+                     });
 #endif
 }
 

@@ -21,15 +21,17 @@ QString describe(TipCategory category)
     case TipCategory::Timing:
         return MeetPage::tr("When a point runs over its time.");
     case TipCategory::Posture:
-        return MeetPage::tr("Slouching, leaning in, tense shoulders.");
+        return MeetPage::tr("Posture, restless movement, distracting hand gestures.");
     case TipCategory::Expression:
-        return MeetPage::tr("Smiling, eye contact with the camera.");
+        return MeetPage::tr("A tense or cold expression, long looks away from the camera.");
     case TipCategory::Speech:
-        return MeetPage::tr("Filler words, pace, talking for too long.");
+        return MeetPage::tr("Filler words, pace, volume, talking for too long.");
     case TipCategory::Appearance:
         return MeetPage::tr("Collar, framing and lighting.");
     case TipCategory::Content:
         return MeetPage::tr("When you move on without saying a key point.");
+    case TipCategory::Language:
+        return MeetPage::tr("Swearing or unprofessional words.");
     case TipCategory::General:
         break;
     }

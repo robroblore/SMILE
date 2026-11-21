@@ -8,12 +8,12 @@ class CameraMonitor;
 class CameraPreview;
 class QAbstractButton;
 class QLabel;
-class QProgressBar;
 class QPushButton;
+class QVBoxLayout;
 
-// Phase 2: a readiness check before joining. A live camera preview, an AI
-// look at your setup (framing, light, collar, clutter, posture), and a
-// checklist for the things a camera can't see.
+// Phase 2: a readiness check before joining. The camera preview is the focus:
+// face tracking points are drawn live, and after "Check my setup" each issue is
+// marked in red on the area it concerns, with what to change.
 class PreMeetPage : public QWidget
 {
     Q_OBJECT
@@ -34,6 +34,7 @@ private:
     void runCheck();
     void updateProgress();
     void updateCameraState();
+    void showIssues(const QStringList &issues, const QStringList &good, const QString &advice);
 
     CameraMonitor *m_camera;
     AiClient *m_ai;
@@ -41,8 +42,9 @@ private:
 
     CameraPreview *m_preview;
     QPushButton *m_checkButton;
-    QLabel *m_result;
+    QLabel *m_status;
+    QVBoxLayout *m_issues;
+    QLabel *m_tech;
     QList<QAbstractButton *> m_items;
     QLabel *m_progressText;
-    QProgressBar *m_progress;
 };

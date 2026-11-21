@@ -23,6 +23,11 @@ public:
     ~FaceDetector();
 
     bool isAvailable() const;
+
+    // Whether the ONNX Runtime library could be loaded on this computer, and
+    // if not, why. Safe to call from any thread.
+    static bool libraryAvailable();
+    static QString libraryError();
     QString errorString() const { return m_error; }
 
     // Detect faces, best first. Thread-affine: use from one thread only.

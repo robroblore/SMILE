@@ -1,5 +1,6 @@
 #include "core/SessionController.h"
 
+#include "core/AppSettings.h"
 #include "core/Coverage.h"
 #include "core/LiveSignals.h"
 #include "core/TimeFormat.h"
@@ -55,11 +56,16 @@ int SessionController::elapsedOnCurrent() const
 
 void SessionController::start(SessionMode mode)
 {
+    startWith(m_agenda, mode);
+}
+
+void SessionController::startWith(const Agenda &agenda, SessionMode mode)
+{
     if (m_running)
         return;
 
     m_mode = mode;
-    m_active = m_agenda;
+    m_active = agenda;
     if (m_active.isEmpty()) {
         AgendaPoint open;
         open.title = tr("Open discussion");
@@ -224,6 +230,44 @@ void SessionController::addTranscript(const QString &text)
     m_heardSpeech = true;
     m_active[m_index].spoken += QLatin1Char(' ') + text;
     updateCoverage(m_index, true);
+
+    // Did the speaker move on to the next section? Compare what was just said
+    // with the topic words of the current and the next section.
+    if (AppSettings::instance().autoAdvance() && m_index + 1 < m_active.size() && elapsedOnCurrent() >= 10) {
+        const QSet<QString> said = Coverage::keywords(text);
+        auto topic = [this](int i) {
+            const AgendaPoint &p = m_active.at(i);
+            return Coverage::keywords(p.title + QLatin1Char(' ') + p.summary + QLatin1Char(' ') + p.keyPoints.join(QLatin1Char(' ')));
+        };
+        auto overlap = [&said](const QSet<QString> &words, QStringList *matched) {
+            int n = 0;
+            for (const QString &w : words)
+                if (said.contains(w)) {
+                    ++n;
+                    if (matched)
+                        *matched << w;
+                }
+            return words.isEmpty() ? 0.0 : double(n) / qMin<qsizetype>(8, words.size());
+        };
+        QStringList matched;
+        const double current = overlap(topic(m_index), nullptr);
+        const double next = overlap(topic(m_index + 1), &matched);
+        if (next >= 0.25 && next > current + 0.1) {
+            const QString from = m_active.at(m_index).title;
+            closeCurrentPoint();
+            beginPoint(m_index + 1);
+            m_active[m_index].spoken += QLatin1Char(' ') + text;
+            updateCoverage(m_index, true);
+            LiveSignals::instance().addEvent(
+                LiveSignals::Event::Info, tr("Moved on to \"%1\"").arg(m_active.at(m_index).title),
+                tr("You started talking about it (%1); it matched %2% of its topic words vs %3% for \"%4\".")
+                    .arg(matched.mid(0, 5).join(QStringLiteral(", ")))
+                    .arg(qRound(next * 100))
+                    .arg(qRound(current * 100))
+                    .arg(from));
+            return;
+        }
+    }
     // Words spoken just before switching sections arrive a little late
     if (m_previousIndex >= 0 && totalElapsed() * 1000LL - m_switchedAtMs < 15000) {
         m_active[m_previousIndex].spoken += QLatin1Char(' ') + text;

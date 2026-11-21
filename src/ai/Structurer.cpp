@@ -162,6 +162,7 @@ Result locally(const QString &text, int targetMinutes)
         AgendaPoint p;
         p.title = b.heading.isEmpty() ? shorten(s.value(0), 6) : b.heading;
         p.summary = s.value(0);
+        p.sourceText = b.body.trimmed();
         for (int i = 0; i < qMin(3, int(s.size())); ++i)
             p.keyPoints << shorten(s[i], 12);
         result.sections << p;
@@ -180,12 +181,13 @@ void withAi(AiClient *ai, const QString &text, int targetMinutes, std::function<
         "{\"presentation_type\": \"short label, e.g. Business proposal, Job interview answer, Sales pitch, Project update, Lecture\",\n"
         " \"sections\": [{\"title\": \"heading that fits this content and type of talk, max 6 words\",\n"
         "                \"summary\": \"one sentence: what this section must achieve\",\n"
+        "                \"text\": \"the speaker's own words for this section, copied from the draft (verbatim)\",\n"
         "                \"key_points\": [\"2-4 concrete points the speaker must get across, short, in their words\"],\n"
         "                \"minutes\": number}]}\n"
         "Rules: 3-7 sections in delivery order; headings adapt to the type of talk instead of generic labels; "
         "minutes add up to about %1; keep the speaker's own content and facts, never invent new claims.")
                                .arg(targetMinutes);
-    ai->chat(system, text.left(20000), 3000, [done, text, targetMinutes](const QString &reply, const QString &error) {
+    ai->chat(system, text.left(20000), 6000, [done, text, targetMinutes](const QString &reply, const QString &error) {
         if (!error.isEmpty()) {
             Result r = locally(text, targetMinutes);
             r.error = error;
@@ -200,6 +202,7 @@ void withAi(AiClient *ai, const QString &text, int targetMinutes, std::function<
             AgendaPoint p;
             p.title = o.value(QLatin1String("title")).toString().trimmed();
             p.summary = o.value(QLatin1String("summary")).toString().trimmed();
+            p.sourceText = o.value(QLatin1String("text")).toString().trimmed();
             for (const QJsonValue &k : o.value(QLatin1String("key_points")).toArray())
                 if (!k.toString().trimmed().isEmpty())
                     p.keyPoints << k.toString().trimmed();

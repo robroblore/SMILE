@@ -35,13 +35,14 @@ public:
         : QFrame(parent)
         , number(Ui::label(QString(), "secondary", this))
         , title(new QLineEdit(this))
-        , minutes(new QDoubleSpinBox(this))
+        , minutes(new DurationEdit(this))
         , expand(iconButton(Icons::Icon::ChevronRight, AgendaEditor::tr("Show purpose and key points"), this))
         , up(iconButton(Icons::Icon::ArrowUp, AgendaEditor::tr("Move up"), this))
         , down(iconButton(Icons::Icon::ArrowDown, AgendaEditor::tr("Move down"), this))
         , remove(iconButton(Icons::Icon::Close, AgendaEditor::tr("Remove this section"), this))
         , details(new QWidget(this))
         , summary(new QLineEdit(details))
+        , notes(new QPlainTextEdit(details))
         , keyPoints(new QPlainTextEdit(details))
         , count(Ui::label(QString(), "secondary", this))
     {
@@ -52,20 +53,17 @@ public:
         f.setWeight(QFont::DemiBold);
         title->setFont(f);
 
-        minutes->setRange(0.0, 120.0);
-        minutes->setSingleStep(0.5);
-        minutes->setDecimals(1);
-        minutes->setSuffix(AgendaEditor::tr(" min"));
-        minutes->setSpecialValueText(AgendaEditor::tr("No limit"));
-        minutes->setButtonSymbols(QAbstractSpinBox::NoButtons);
-        minutes->setAlignment(Qt::AlignRight);
-        minutes->setFixedWidth(92);
-        minutes->setToolTip(AgendaEditor::tr("Target time for this section. Scroll or type to change it."));
+        minutes->setAllowZero(true);
+        minutes->setFixedWidth(minutes->sizeHint().width());
+        minutes->setToolTip(AgendaEditor::tr("Target time for this section: 2, 1:30, 90s… (0 for no limit)."));
 
         summary->setPlaceholderText(AgendaEditor::tr("Purpose: what this section must achieve"));
         keyPoints->setPlaceholderText(AgendaEditor::tr("Key points to get across, one per line.\n"
                                                        "SMILE checks that you actually say them."));
         keyPoints->setFixedHeight(92);
+        notes->setPlaceholderText(AgendaEditor::tr("Your notes or words for this section (shown when you practise it)"));
+        notes->setFixedHeight(80);
+        notes->setTabChangesFocus(true);
         keyPoints->setTabChangesFocus(true);
 
         auto *head = new QHBoxLayout;
@@ -83,6 +81,7 @@ public:
         d->setContentsMargins(64, 2, 104, 8);
         d->setSpacing(6);
         d->addWidget(summary);
+        d->addWidget(notes);
         d->addWidget(keyPoints);
         details->hide();
 
@@ -123,10 +122,11 @@ public:
 
     QLabel *number;
     QLineEdit *title;
-    QDoubleSpinBox *minutes;
+    DurationEdit *minutes;
     QPushButton *expand, *up, *down, *remove;
     QWidget *details;
     QLineEdit *summary;
+    QPlainTextEdit *notes;
     QPlainTextEdit *keyPoints;
     QLabel *count;
 };
@@ -154,17 +154,19 @@ void AgendaEditor::addSection(const AgendaPoint &point, bool focus, bool expande
 {
     auto *row = new SectionRow(this);
     row->title->setText(point.title);
-    row->minutes->setValue(point.targetSeconds / 60.0);
+    row->minutes->setSeconds(point.targetSeconds);
     row->summary->setText(point.summary);
+    row->notes->setPlainText(point.sourceText);
     row->keyPoints->setPlainText(point.keyPoints.join(QLatin1Char('\n')));
     row->updateCount();
     row->setExpanded(expanded);
     m_rows->addWidget(row);
 
     connect(row->title, &QLineEdit::textChanged, this, &AgendaEditor::changed);
-    connect(row->minutes, &QDoubleSpinBox::valueChanged, this, &AgendaEditor::changed);
+    connect(row->minutes, &DurationEdit::secondsChanged, this, &AgendaEditor::changed);
     connect(row->summary, &QLineEdit::textChanged, this, &AgendaEditor::changed);
     connect(row->keyPoints, &QPlainTextEdit::textChanged, this, &AgendaEditor::changed);
+    connect(row->notes, &QPlainTextEdit::textChanged, this, &AgendaEditor::changed);
     connect(row->up, &QPushButton::clicked, this, [this, row] { move(row, -1); });
     connect(row->down, &QPushButton::clicked, this, [this, row] { move(row, +1); });
     connect(row->remove, &QPushButton::clicked, this, [this, row] {
@@ -217,8 +219,9 @@ Agenda AgendaEditor::agenda() const
         p.title = row->title->text().trimmed();
         if (p.title.isEmpty())
             continue;
-        p.targetSeconds = qRound(row->minutes->value() * 60.0);
+        p.targetSeconds = row->minutes->seconds();
         p.summary = row->summary->text().trimmed();
+        p.sourceText = row->notes->toPlainText().trimmed();
         p.keyPoints = row->points();
         result.append(p);
     }

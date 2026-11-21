@@ -190,6 +190,55 @@ AppSettings::Thresholds AppSettings::thresholds() const
     return {20, 6, 5, 8, 175, 4, 120, 60, 15, 8};
 }
 
+bool AppSettings::sectionTimer() const
+{
+    return value("coach/sectionTimer", false).toBool();
+}
+
+void AppSettings::setSectionTimer(bool on)
+{
+    store("coach/sectionTimer", on);
+    emit changed();
+}
+
+bool AppSettings::autoAdvance() const
+{
+    return value("coach/autoAdvance", true).toBool();
+}
+
+void AppSettings::setAutoAdvance(bool on)
+{
+    store("coach/autoAdvance", on);
+    emit changed();
+}
+
+int AppSettings::themeMode() const
+{
+    return qBound(0, value("appearance/theme", 0).toInt(), 2);
+}
+
+void AppSettings::setThemeMode(int mode)
+{
+    store("appearance/theme", mode);
+    emit changed();
+}
+
+QString AppSettings::avatarVoice() const
+{
+    return value("simulation/voice", QStringLiteral("am_michael")).toString();
+}
+
+void AppSettings::setAvatarVoice(const QString &voice)
+{
+    store("simulation/voice", voice);
+    emit changed();
+}
+
+QString AppSettings::speechModel() const
+{
+    return value("ai/speechModel", QStringLiteral("hexgrad/Kokoro-82M")).toString();
+}
+
 bool AppSettings::debugMode() const
 {
     return value("debug/enabled", false).toBool();
@@ -240,6 +289,16 @@ int AppSettings::targetMinutes() const
 void AppSettings::setTargetMinutes(int minutes)
 {
     store("training/targetMinutes", minutes);
+}
+
+int AppSettings::targetSeconds() const
+{
+    return qBound(30, value("training/targetSeconds", targetMinutes() * 60).toInt(), 6 * 3600);
+}
+
+void AppSettings::setTargetSeconds(int seconds)
+{
+    store("training/targetSeconds", seconds);
 }
 
 QString AppSettings::presentationType() const

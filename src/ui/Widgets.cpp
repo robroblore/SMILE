@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
@@ -365,6 +366,250 @@ void LevelMeter::paintEvent(QPaintEvent *)
     p.drawRoundedRect(QRectF(r.left(), r.top(), r.width() * m_level, r.height()), 3, 3);
 }
 
+// -------------------------------------------------------------------- Expander
+
+namespace {
+class ScoreBar : public QWidget
+{
+public:
+    ScoreBar(int score, const QColor &colour, QWidget *parent)
+        : QWidget(parent)
+        , m_score(score)
+        , m_colour(colour)
+    {
+        setFixedHeight(8);
+        setMinimumWidth(80);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(Theme::colors().track);
+        p.drawRoundedRect(QRectF(rect()), 4, 4);
+        if (m_score >= 0) {
+            p.setBrush(m_colour);
+            p.drawRoundedRect(QRectF(0, 0, width() * qBound(0, m_score, 100) / 100.0, height()), 4, 4);
+        }
+    }
+
+private:
+    int m_score;
+    QColor m_colour;
+};
+} // namespace
+
+Expander::Expander(const QString &title, const QString &subtitle, int score, const QColor &colour,
+                   const QString &valueText, QWidget *parent)
+    : QFrame(parent)
+    , m_header(new QWidget(this))
+    , m_content(new QWidget(this))
+    , m_body(new QVBoxLayout(m_content))
+    , m_chevron(new QLabel(this))
+{
+    setObjectName(QStringLiteral("card"));
+    Theme::addShadow(this);
+    m_header->setCursor(Qt::PointingHandCursor);
+    m_header->installEventFilter(this);
+
+    auto *titles = new QVBoxLayout;
+    titles->setSpacing(1);
+    QLabel *t = Ui::label(title, nullptr, m_header);
+    QFont f = t->font();
+    f.setPointSizeF(f.pointSizeF() * 1.12);
+    f.setWeight(QFont::DemiBold);
+    t->setFont(f);
+    titles->addWidget(t);
+    if (!subtitle.isEmpty())
+        titles->addWidget(Ui::label(subtitle, "secondary", m_header));
+
+    QLabel *value = Ui::label(valueText, nullptr, m_header);
+    QFont vf = value->font();
+    vf.setPointSizeF(vf.pointSizeF() * 1.45);
+    vf.setWeight(QFont::Bold);
+    value->setFont(vf);
+    value->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::css(colour)));
+    value->setMinimumWidth(64);
+    value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    m_chevron->setPixmap(Icons::icon(Icons::Icon::ChevronRight, Theme::colors().textSecondary, 16).pixmap(16, 16));
+
+    auto *h = new QHBoxLayout(m_header);
+    h->setContentsMargins(20, 14, 16, 14);
+    h->setSpacing(16);
+    h->addLayout(titles, 3);
+    if (score >= 0 || !valueText.isEmpty()) {
+        h->addWidget(new ScoreBar(score, colour, m_header), 2);
+        h->addWidget(value);
+    } else {
+        value->hide();
+    }
+    h->addWidget(m_chevron);
+
+    m_body->setContentsMargins(20, 0, 20, 16);
+    m_body->setSpacing(8);
+    m_content->hide();
+
+    auto *v = new QVBoxLayout(this);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->setSpacing(0);
+    v->addWidget(m_header);
+    v->addWidget(m_content);
+}
+
+void Expander::setExpanded(bool expanded)
+{
+    m_content->setVisible(expanded);
+    m_chevron->setPixmap(Icons::icon(expanded ? Icons::Icon::ChevronDown : Icons::Icon::ChevronRight,
+                                     Theme::colors().textSecondary, 16)
+                             .pixmap(16, 16));
+}
+
+bool Expander::isExpanded() const
+{
+    return m_content->isVisible();
+}
+
+bool Expander::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_header && event->type() == QEvent::MouseButtonRelease) {
+        setExpanded(!isExpanded());
+        return true;
+    }
+    return QFrame::eventFilter(watched, event);
+}
+
+// ------------------------------------------------------------------- ScoreRing
+
+ScoreRing::ScoreRing(int score, const QColor &colour, int size, const QString &caption, QWidget *parent)
+    : QWidget(parent)
+    , m_score(score)
+    , m_colour(colour)
+    , m_caption(caption)
+{
+    setFixedSize(size, size);
+}
+
+void ScoreRing::paintEvent(QPaintEvent *)
+{
+    const Theme::Colors &c = Theme::colors();
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal stroke = width() * 0.075;
+    const QRectF r = QRectF(rect()).adjusted(stroke, stroke, -stroke, -stroke);
+    p.setPen(QPen(c.track, stroke, Qt::SolidLine, Qt::RoundCap));
+    p.drawArc(r, 0, 360 * 16);
+    p.setPen(QPen(m_colour, stroke, Qt::SolidLine, Qt::RoundCap));
+    p.drawArc(r, 90 * 16, -int(360 * 16 * qBound(0, m_score, 100) / 100.0));
+
+    QFont big = font();
+    big.setPixelSize(int(width() * 0.3));
+    big.setWeight(QFont::Bold);
+    p.setFont(big);
+    p.setPen(c.text);
+    const QRectF numberRect(r.left(), r.top(), r.width(), r.height() * (m_caption.isEmpty() ? 1.0 : 0.86));
+    p.drawText(numberRect, Qt::AlignCenter, m_score >= 0 ? QString::number(m_score) : QStringLiteral("–"));
+    if (!m_caption.isEmpty()) {
+        QFont small = font();
+        small.setPixelSize(int(width() * 0.085));
+        p.setFont(small);
+        p.setPen(c.textSecondary);
+        p.drawText(QRectF(r.left(), r.center().y() + r.height() * 0.16, r.width(), r.height() * 0.2), Qt::AlignHCenter | Qt::AlignTop,
+                   m_caption);
+    }
+}
+
+// ---------------------------------------------------------------- DurationEdit
+
+DurationEdit::DurationEdit(QWidget *parent)
+    : QLineEdit(parent)
+{
+    setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    setToolTip(tr("Type minutes (5), minutes and seconds (5:30), or 90s / 2m 30s."));
+    connect(this, &QLineEdit::editingFinished, this, &DurationEdit::commit);
+    setText(format(0, m_allowZero));
+}
+
+QSize DurationEdit::sizeHint() const
+{
+    const int w = fontMetrics().horizontalAdvance(QStringLiteral("00:00 min")) + 36;
+    return {qMax(110, w), QLineEdit::sizeHint().height()};
+}
+
+int DurationEdit::parse(const QString &input, bool *ok)
+{
+    *ok = true;
+    QString t = input.trimmed().toLower();
+    t.remove(QStringLiteral("min"));
+    t = t.trimmed();
+    if (t.isEmpty() || t == QLatin1String("no limit"))
+        return 0;
+    static const QRegularExpression clock(QStringLiteral("^(\\d+):(\\d{1,2})$"));
+    static const QRegularExpression parts(QStringLiteral("(\\d+(?:[.,]\\d+)?)\\s*(h|m|s)?"));
+    const auto c = clock.match(t);
+    if (c.hasMatch())
+        return c.captured(1).toInt() * 60 + c.captured(2).toInt();
+    double total = 0;
+    int consumed = 0;
+    auto it = parts.globalMatch(t);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const double n = m.captured(1).replace(QLatin1Char(','), QLatin1Char('.')).toDouble();
+        const QString unit = m.captured(2);
+        total += unit == QLatin1String("h") ? n * 3600 : unit == QLatin1String("s") ? n : n * 60; // bare number = minutes
+        consumed += int(m.capturedLength());
+    }
+    QString rest = t;
+    rest.remove(QRegularExpression(QStringLiteral("[\\d.,hms\\s]")));
+    if (consumed == 0 || !rest.isEmpty()) {
+        *ok = false;
+        return 0;
+    }
+    return int(qRound(total));
+}
+
+QString DurationEdit::format(int seconds, bool allowZero)
+{
+    if (seconds <= 0)
+        return allowZero ? tr("No limit") : tr("0 min");
+    if (seconds % 60 == 0)
+        return tr("%1 min").arg(seconds / 60);
+    return tr("%1:%2 min").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));
+}
+
+void DurationEdit::setSeconds(int seconds)
+{
+    m_seconds = qMax(0, seconds);
+    setText(format(m_seconds, m_allowZero));
+}
+
+void DurationEdit::focusInEvent(QFocusEvent *event)
+{
+    QLineEdit::focusInEvent(event);
+    // Edit the plain value ("5:30"), not the label
+    setText(m_seconds % 60 ? QStringLiteral("%1:%2").arg(m_seconds / 60).arg(m_seconds % 60, 2, 10, QLatin1Char('0'))
+                           : QString::number(m_seconds / 60));
+    selectAll();
+}
+
+void DurationEdit::commit()
+{
+    bool ok = false;
+    const int value = parse(text(), &ok);
+    if (!ok || (value == 0 && !m_allowZero)) {
+        setText(format(m_seconds, m_allowZero)); // keep the old value
+        return;
+    }
+    const bool changed = value != m_seconds;
+    m_seconds = qMin(value, 6 * 3600);
+    setText(format(m_seconds, m_allowZero));
+    if (changed)
+        emit secondsChanged(m_seconds);
+}
+
 // ------------------------------------------------------------------------ Card
 
 Card::Card(QWidget *parent)
@@ -372,6 +617,7 @@ Card::Card(QWidget *parent)
     , m_body(new QVBoxLayout(this))
 {
     setObjectName(QStringLiteral("card"));
+    Theme::addShadow(this);
     m_body->setContentsMargins(20, 18, 20, 18);
     m_body->setSpacing(10);
 }

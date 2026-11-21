@@ -1,15 +1,13 @@
 #include "app/pages/PostMeetPage.h"
 
-#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QJsonObject>
 #include <QLabel>
 #include <QLocale>
-#include <QPainter>
 #include <QScrollArea>
 #include <QVBoxLayout>
+#include <algorithm>
 
 #include "ai/AiClient.h"
 #include "core/Plural.h"
@@ -19,311 +17,360 @@
 
 namespace {
 
-// Circular score with the rating colour
-class ScoreRing : public QWidget
+int clampScore(double v)
 {
-public:
-    ScoreRing(int score, const QColor &colour, QWidget *parent = nullptr)
-        : QWidget(parent)
-        , m_score(score)
-        , m_colour(colour)
-    {
-        setFixedSize(112, 112);
-    }
+    return qBound(0, int(qRound(v)), 100);
+}
 
-protected:
-    void paintEvent(QPaintEvent *) override
-    {
-        const Theme::Colors &c = Theme::colors();
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-        const QRectF r = QRectF(rect()).adjusted(8, 8, -8, -8);
-        p.setPen(QPen(c.track, 9, Qt::SolidLine, Qt::RoundCap));
-        p.drawArc(r, 0, 360 * 16);
-        p.setPen(QPen(m_colour, 9, Qt::SolidLine, Qt::RoundCap));
-        p.drawArc(r, 90 * 16, -int(360 * 16 * qBound(0, m_score, 100) / 100.0));
-        QFont f = font();
-        f.setPointSizeF(f.pointSizeF() * 2.2);
-        f.setWeight(QFont::Bold);
-        p.setFont(f);
-        p.setPen(c.text);
-        p.drawText(r, Qt::AlignCenter, QString::number(m_score));
-    }
-
-private:
-    int m_score;
-    QColor m_colour;
-};
-
-QLabel *pill(Rating rating)
+// Average of the parts that were measured (score >= 0), with weights
+int blend(const QList<QPair<double, double>> &parts)
 {
-    const QColor colour = Theme::ratingColor(int(rating));
-    QColor bg = colour;
-    bg.setAlpha(Theme::colors().dark ? 50 : 30);
-    QLabel *l = Ui::label(Ratings::name(rating));
-    l->setStyleSheet(QStringLiteral("background: %1; color: %2; border-radius: 9px; padding: 2px 10px; font-weight: 600;")
-                         .arg(Theme::css(bg), Theme::css(colour)));
-    l->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    double sum = 0, weight = 0;
+    for (const auto &[score, w] : parts) {
+        if (score < 0)
+            continue;
+        sum += score * w;
+        weight += w;
+    }
+    return weight > 0 ? clampScore(sum / weight) : -1;
+}
+
+QLabel *bulletLine(const QString &text, const QColor &dot)
+{
+    QLabel *l = Ui::label(QStringLiteral("<span style='color:%1'>●</span>&nbsp; %2").arg(Theme::css(dot), text.toHtmlEscaped()));
+    l->setTextFormat(Qt::RichText);
+    l->setWordWrap(true);
     return l;
 }
 
-QWidget *metricTile(const RatedMetric &m)
+QLabel *sectionLabel(const QString &text)
 {
-    const QColor colour = Theme::ratingColor(int(m.rating));
-    auto *tile = new Card;
-    tile->body()->setContentsMargins(18, 14, 18, 16);
-    tile->body()->setSpacing(4);
-
-    auto *bar = new QFrame;
-    bar->setFixedHeight(4);
-    bar->setStyleSheet(QStringLiteral("background: %1; border-radius: 2px;").arg(Theme::css(colour)));
-    tile->body()->addWidget(bar);
-    tile->body()->addSpacing(6);
-
-    auto *head = new QHBoxLayout;
-    head->addWidget(Ui::label(m.label.toUpper(), "caption"));
-    head->addStretch();
-    head->addWidget(pill(m.rating));
-    tile->body()->addLayout(head);
-
-    QLabel *value = Ui::label(m.value);
-    QFont f = value->font();
-    f.setPointSizeF(f.pointSizeF() * 2.3);
-    f.setWeight(QFont::Bold);
-    value->setFont(f);
-    value->setStyleSheet(QStringLiteral("color: %1;").arg(
-        Theme::css(m.rating == Rating::None ? Theme::colors().textSecondary : colour)));
-    tile->body()->addWidget(value);
-
-    QLabel *measured = Ui::label(m.measured, "secondary");
-    measured->setWordWrap(true);
-    QFont small = measured->font();
-    small.setPointSizeF(small.pointSizeF() * 0.92);
-    measured->setFont(small);
-    tile->body()->addWidget(measured);
-    QLabel *why = Ui::label(m.why);
-    why->setWordWrap(true);
-    tile->body()->addWidget(why);
-    tile->body()->addStretch();
-    return tile;
-}
-
-Card *listCard(const QString &title, const QStringList &items, const QString &emptyText, const QColor &dot)
-{
-    auto *card = new Card(title);
-    card->body()->setSpacing(8);
-    if (items.isEmpty()) {
-        card->body()->addWidget(Ui::label(emptyText, "secondary"));
-        return card;
-    }
-    for (const QString &item : items) {
-        auto *row = new QHBoxLayout;
-        row->setSpacing(10);
-        QLabel *bullet = Ui::label(QString());
-        bullet->setFixedSize(8, 8);
-        bullet->setStyleSheet(QStringLiteral("background: %1; border-radius: 4px;").arg(Theme::css(dot)));
-        auto *dotBox = new QVBoxLayout;
-        dotBox->setContentsMargins(0, 6, 0, 0);
-        dotBox->addWidget(bullet);
-        dotBox->addStretch();
-        QLabel *text = Ui::label(item);
-        text->setWordWrap(true);
-        row->addLayout(dotBox);
-        row->addWidget(text, 1);
-        card->body()->addLayout(row);
-    }
-    return card;
-}
-
-QString pct(int v)
-{
-    return v < 0 ? QStringLiteral("–") : QStringLiteral("%1%").arg(v);
+    QLabel *l = Ui::label(text.toUpper(), "caption");
+    l->setContentsMargins(0, 6, 0, 0);
+    return l;
 }
 
 } // namespace
 
-// ------------------------------------------------------------------ metrics
-
-QList<RatedMetric> PostMeetPage::metrics(const SessionReport &report, RatedMetric *overall)
+Rating PostMeetPage::ratingFor(int score)
 {
-    QList<RatedMetric> list;
+    if (score < 0)
+        return Rating::None;
+    return score >= 75 ? Rating::Good : (score >= 50 ? Rating::NeedsWork : Rating::Poor);
+}
+
+// ---------------------------------------------------------------- scoring
+
+Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject &review)
+{
+    Evaluation ev;
     const QVariantMap vision = report.sources.value(QStringLiteral("vision")).toMap();
     const QVariantMap speech = report.sources.value(QStringLiteral("speech")).toMap();
-    const bool heardSpeech = !speech.value(QStringLiteral("transcript")).toString().trimmed().isEmpty();
+    const bool heard = !speech.value(QStringLiteral("transcript")).toString().trimmed().isEmpty();
+    const QJsonObject aiCategories = review.value(QLatin1String("categories")).toObject();
+    const double speechMinutes = speech.value(QStringLiteral("speechSeconds")).toInt() / 60.0;
+    auto aiNote = [&aiCategories](const QString &name) { return aiCategories.value(name).toString(); };
 
-    // Key points covered
+    // --- Speech delivery
     {
-        RatedMetric m;
-        m.label = tr("Key points");
-        int total = 0, covered = 0, unreachedSections = 0;
-        for (const AgendaPoint &p : report.points) {
-            total += int(p.keyPoints.size());
-            for (int k = 0; k < p.keyPoints.size(); ++k)
-                covered += p.keyPointCovered.value(k) ? 1 : 0;
-            if (!p.reached && !p.keyPoints.isEmpty())
-                ++unreachedSections;
+        ReportCategory c;
+        c.name = tr("Speech delivery");
+        c.measured = tr("Pace, filler words, pauses, volume and long stretches without a break.");
+        const int wpm = speech.value(QStringLiteral("wordsPerMinute")).toInt();
+        const double fillers = speech.value(QStringLiteral("fillersPerMinute"), -1.0).toDouble();
+        const int pauses = speech.value(QStringLiteral("pausesPerMinute"), -1).toInt();
+        const int quiet = speech.value(QStringLiteral("quietPct"), -1).toInt();
+        const int longest = speech.value(QStringLiteral("longestMonologueSeconds")).toInt();
+        double paceScore = -1, fillerScore = -1, pauseScore = -1, volumeScore = -1;
+        if (wpm > 0) {
+            const int off = wpm < 130 ? 130 - wpm : (wpm > 165 ? wpm - 165 : 0);
+            paceScore = clampScore(100 - off * 1.4);
+            c.details << tr("Pace: %1 words per minute (comfortable is 130–165).").arg(wpm);
+            if (wpm > 165)
+                c.recommendations << tr("Slow down: pause briefly after each key sentence.");
+            else if (wpm < 120)
+                c.recommendations << tr("Pick up the pace a little to sound more energetic.");
         }
-        m.measured = tr("Key points from your sections that SMILE heard you say.");
-        if (total == 0) {
-            m.value = tr("–");
-            m.why = tr("No key points set. Add them to your sections on the Training page.");
-        } else if (!heardSpeech) {
-            m.value = tr("–");
-            m.why = tr("Needs the microphone and an AI key to hear what you said.");
-        } else {
-            const double share = double(covered) / total;
-            m.value = QStringLiteral("%1 / %2").arg(covered).arg(total);
-            m.rating = Ratings::higherIsBetter(share, 0.9, 0.6);
-            if (unreachedSections > 0 && m.rating == Rating::Good)
-                m.rating = Rating::NeedsWork;
-            m.why = m.rating == Rating::Good ? tr("You got your message across.")
-                    : unreachedSections > 0
-                        ? plural(unreachedSections, tr("%1 section never reached, so their points were missed."), tr("%1 sections never reached, so their points were missed."))
-                        : tr("%1 key points weren't mentioned; aim for at least 90%.").arg(total - covered);
+        if (fillers >= 0) {
+            fillerScore = clampScore(fillers <= 2 ? 100 : 100 - (fillers - 2) * 16);
+            c.details << tr("Filler words: %1 per minute (%2 in total).")
+                             .arg(fillers, 0, 'f', 1)
+                             .arg(speech.value(QStringLiteral("fillerTotal")).toInt());
+            if (fillers > 2)
+                c.recommendations << tr("Replace \"um\" and \"uh\" with a silent pause; it sounds more confident.");
         }
-        list << m;
+        if (pauses >= 0) {
+            pauseScore = pauses >= 5 ? 100 : 60 + pauses * 8;
+            c.details << tr("Natural pauses: %1 per minute.").arg(pauses);
+            if (pauses < 5)
+                c.recommendations << tr("Use more short pauses to let important points land.");
+        }
+        if (quiet >= 0) {
+            volumeScore = clampScore(100 - quiet * 0.8);
+            if (quiet > 20) {
+                c.details << tr("Quieter than your usual voice %1% of the time.").arg(quiet);
+                c.recommendations << tr("Keep your volume up, especially at the end of sentences.");
+            }
+        }
+        if (longest > 0)
+            c.details << tr("Longest stretch without a pause: %1.").arg(formatDuration(longest));
+        int score = blend({{paceScore, 1.2}, {fillerScore, 1.0}, {pauseScore, 0.6}, {volumeScore, 0.6}});
+        if (score >= 0 && longest > 180)
+            score = clampScore(score - 10);
+        const QJsonObject delivery = review.value(QLatin1String("delivery")).toObject();
+        if (score >= 0 && !delivery.isEmpty()) {
+            const int ai = blend({{delivery.value(QLatin1String("clarity")).toDouble(-1), 1},
+                                  {delivery.value(QLatin1String("confidence")).toDouble(-1), 1},
+                                  {delivery.value(QLatin1String("articulation")).toDouble(-1), 1}});
+            if (ai >= 0) {
+                c.details << tr("AI rating: clarity %1, confidence %2, articulation %3.")
+                                 .arg(delivery.value(QLatin1String("clarity")).toInt())
+                                 .arg(delivery.value(QLatin1String("confidence")).toInt())
+                                 .arg(delivery.value(QLatin1String("articulation")).toInt());
+                score = clampScore(0.6 * score + 0.4 * ai);
+            }
+        }
+        c.score = score;
+        c.summary = !aiNote(c.name).isEmpty() ? aiNote(c.name)
+                    : score < 0               ? tr("Needs the microphone (and an AI key for words per minute and fillers).")
+                    : score >= 75             ? tr("Clear, well-paced delivery.")
+                                              : tr("Your delivery has room to become calmer and clearer.");
+        ev.categories << c;
     }
 
-    // Timing
+    // --- Facial engagement (no smile required: a relaxed, attentive face scores well)
     {
-        RatedMetric m;
-        m.label = tr("Timing");
+        ReportCategory c;
+        c.name = tr("Facial engagement");
+        c.measured = tr("How warm, relaxed and attentive your face looked. A calm neutral face counts as good.");
+        const int expression = vision.value(QStringLiteral("expressionScore"), -1).toInt();
+        const int engagement = vision.value(QStringLiteral("engagementPct"), -1).toInt();
+        const int relaxed = vision.value(QStringLiteral("relaxedPct"), -1).toInt();
+        const int smiling = vision.value(QStringLiteral("smilingPct"), -1).toInt();
+        c.score = blend({{double(expression), 0.6}, {double(engagement), 0.4}});
+        const QVariantMap exprs = vision.value(QStringLiteral("expressions")).toMap();
+        if (!exprs.isEmpty()) {
+            QStringList parts;
+            for (auto it = exprs.cbegin(); it != exprs.cend(); ++it)
+                parts << QStringLiteral("%1 ×%2").arg(QString(it.key()).replace(QLatin1Char('_'), QLatin1Char(' '))).arg(it.value().toInt());
+            c.details << tr("Expressions seen: %1.").arg(parts.join(QStringLiteral(", ")));
+        }
+        if (relaxed >= 0)
+            c.details << tr("Relaxed and natural: %1% of the time.").arg(relaxed);
+        if (smiling >= 0)
+            c.details << tr("Smiling: %1% of the time (for information; smiling all the time isn't expected).").arg(smiling);
+        const int tense = exprs.value(QStringLiteral("tense")).toInt() + exprs.value(QStringLiteral("unapproachable")).toInt();
+        if (tense > 0 && tense * 4 >= exprs.value(QStringLiteral("neutral_relaxed")).toInt() + 1)
+            c.recommendations << tr("Before you start, drop your shoulders and relax your jaw: it softens your expression.");
+        if (c.score >= 0 && c.score < 75)
+            c.recommendations << tr("Smile when you greet people and when you agree; a slight smile is plenty.");
+        c.summary = !aiNote(c.name).isEmpty() ? aiNote(c.name)
+                    : c.score < 0            ? tr("Needs the camera and an AI key.")
+                    : c.score >= 75          ? tr("You looked calm, attentive and approachable.")
+                                             : tr("You sometimes looked tense or distant.");
+        ev.categories << c;
+    }
+
+    // --- Eye contact (in context: reading notes briefly is fine)
+    {
+        ReportCategory c;
+        c.name = tr("Eye contact");
+        c.measured = tr("Time spent facing the camera. Brief glances and reading your notes don't count against you.");
+        c.score = vision.value(QStringLiteral("eyeContactPct"), -1).toInt();
+        const int glances = vision.value(QStringLiteral("notesGlances")).toInt();
+        if (glances > 0)
+            c.details << tr("Glanced at your notes %1 times (fine).").arg(glances);
+        if (c.score >= 0 && c.score < 75)
+            c.recommendations << tr("When you finish a sentence, look straight into the camera lens.");
+        c.summary = !aiNote(c.name).isEmpty() ? aiNote(c.name)
+                    : c.score < 0            ? tr("Needs the camera.")
+                    : c.score >= 75          ? tr("Good, steady eye contact.")
+                                             : tr("You often looked away for longer stretches.");
+        ev.categories << c;
+    }
+
+    // --- Professional language
+    {
+        ReportCategory c;
+        c.name = tr("Professional language");
+        c.measured = tr("Swearing, slang and hedging words such as \"I think\" or \"maybe\".");
+        if (heard) {
+            const QVariantList flagged = speech.value(QStringLiteral("flagged")).toList();
+            const QVariantMap slang = speech.value(QStringLiteral("slang")).toMap();
+            const int hedges = speech.value(QStringLiteral("hedges")).toInt();
+            int slangTotal = 0;
+            for (const QVariant &n : slang)
+                slangTotal += n.toInt();
+            double score = 100 - flagged.size() * 18.0;
+            if (speechMinutes > 0.3) {
+                score -= qMax(0.0, slangTotal / speechMinutes - 0.5) * 12;
+                score -= qMax(0.0, hedges / speechMinutes - 1.5) * 8;
+            }
+            c.score = clampScore(score);
+            for (const QVariant &f : flagged) {
+                const QVariantMap m = f.toMap();
+                c.events << tr("\"%1\": …%2…").arg(m.value(QStringLiteral("word")).toString(), m.value(QStringLiteral("context")).toString());
+            }
+            if (slangTotal > 0)
+                c.details << tr("Informal words: %1.").arg(QStringList(slang.keys()).join(QStringLiteral(", ")));
+            c.details << plural(hedges, tr("%1 hedging phrase (\"I think\", \"maybe\")."), tr("%1 hedging phrases (\"I think\", \"maybe\")."));
+            for (const QJsonValue &v : review.value(QLatin1String("language")).toArray()) {
+                const QJsonObject o = v.toObject();
+                c.recommendations << tr("Instead of \"%1\", say \"%2\". %3")
+                                         .arg(o.value(QLatin1String("phrase")).toString(), o.value(QLatin1String("suggestion")).toString(),
+                                              o.value(QLatin1String("why")).toString());
+            }
+            if (hedges / qMax(0.3, speechMinutes) > 1.5)
+                c.recommendations << tr("Replace \"I think\" with direct statements when you're sure.");
+        }
+        c.summary = !aiNote(c.name).isEmpty() ? aiNote(c.name)
+                    : c.score < 0            ? tr("Needs the microphone and an AI key.")
+                    : c.score >= 75          ? tr("Professional, confident wording.")
+                                             : tr("Some words could sound more professional.");
+        ev.categories << c;
+    }
+
+    // --- Body language
+    {
+        ReportCategory c;
+        c.name = tr("Body language");
+        c.measured = tr("Posture, restless movement, hand gestures and visible discomfort.");
+        const int upright = vision.value(QStringLiteral("uprightPct"), -1).toInt();
+        const int restless = vision.value(QStringLiteral("restlessPct"), -1).toInt();
+        const QVariantMap hands = vision.value(QStringLiteral("hands")).toMap();
+        int handChecks = 0, badHands = 0;
+        for (auto it = hands.cbegin(); it != hands.cend(); ++it) {
+            if (it.key() == QLatin1String("not_visible"))
+                continue;
+            handChecks += it.value().toInt();
+            if (it.key() == QLatin1String("distracting") || it.key() == QLatin1String("inappropriate"))
+                badHands += it.value().toInt();
+        }
+        const double handScore = handChecks ? 100.0 - 100.0 * badHands / handChecks : -1;
+        const int discomfort = vision.value(QStringLiteral("discomfortChecks")).toInt();
+        const int checks = vision.value(QStringLiteral("snapshots")).toInt();
+        const double comfortScore = checks ? 100.0 - 100.0 * discomfort / checks : -1;
+        c.score = blend({{double(upright), 0.5},
+                         {restless >= 0 ? 100.0 - restless * 2.0 : -1.0, 0.25},
+                         {handScore, 0.15},
+                         {comfortScore, 0.1}});
+        if (upright >= 0)
+            c.details << tr("Sat upright in %1% of checks.").arg(upright);
+        if (restless > 0)
+            c.details << tr("Restless movement %1% of the time.").arg(restless);
+        if (badHands > 0)
+            c.details << tr("Distracting hand gestures in %1 of %2 checks where your hands were visible.").arg(badHands).arg(handChecks);
+        for (const QVariant &e : vision.value(QStringLiteral("events")).toList()) {
+            const QVariantMap m = e.toMap();
+            c.events << QStringLiteral("%1 · %2").arg(m.value(QStringLiteral("at")).toString(), m.value(QStringLiteral("detail")).toString());
+        }
+        if (upright >= 0 && upright < 75)
+            c.recommendations << tr("Sit back in your chair with both feet on the floor; it stops you leaning in.");
+        if (badHands > 0)
+            c.recommendations << tr("Rest your hands on the desk between gestures.");
+        c.summary = !aiNote(c.name).isEmpty() ? aiNote(c.name)
+                    : c.score < 0            ? tr("Needs the camera and an AI key.")
+                    : c.score >= 75          ? tr("Composed and confident.")
+                                             : tr("Your posture or movement drew attention at times.");
+        ev.categories << c;
+    }
+
+    // --- Key points
+    {
+        ReportCategory c;
+        c.name = tr("Key points");
+        c.measured = tr("Whether you actually said the points you planned in each section.");
+        int total = 0, covered = 0;
+        for (const AgendaPoint &p : report.points) {
+            for (int k = 0; k < p.keyPoints.size(); ++k) {
+                ++total;
+                const bool ok = p.keyPointCovered.value(k);
+                covered += ok ? 1 : 0;
+                c.details << QStringLiteral("%1  %2 — %3").arg(ok ? QStringLiteral("✓") : QStringLiteral("✗"), p.title, p.keyPoints[k]);
+                if (!ok)
+                    c.recommendations << tr("Make sure to say: \"%1\".").arg(p.keyPoints[k]);
+            }
+        }
+        if (total > 0 && heard)
+            c.score = clampScore(100.0 * covered / total);
+        c.summary = total == 0 ? tr("No key points set. Add them to your sections on the Training page.")
+                    : !heard   ? tr("Needs the microphone and an AI key to hear what you said.")
+                               : tr("You got %1 of %2 key points across.").arg(covered).arg(total);
+        while (c.recommendations.size() > 4)
+            c.recommendations.removeLast();
+        ev.categories << c;
+    }
+
+    // --- Timing
+    {
+        ReportCategory c;
+        c.name = tr("Timing");
+        c.measured = tr("Sections finished within their target time (10% leeway).");
         int timed = 0, onTime = 0, unreached = 0, target = 0;
         for (const AgendaPoint &p : report.points) {
             target += p.targetSeconds;
+            QString line;
             if (!p.reached) {
                 ++unreached;
-                continue;
-            }
-            if (p.targetSeconds > 0) {
+                line = tr("%1: not reached").arg(p.title);
+                c.recommendations << tr("Leave time for \"%1\" by tightening earlier sections.").arg(p.title);
+            } else if (p.targetSeconds > 0) {
                 ++timed;
-                onTime += p.actualSeconds <= p.targetSeconds * 1.1 ? 1 : 0;
+                const bool ok = p.actualSeconds <= p.targetSeconds * 1.1;
+                onTime += ok ? 1 : 0;
+                line = tr("%1: %2 of %3").arg(p.title, formatDuration(p.actualSeconds), formatDuration(p.targetSeconds));
+                if (!ok)
+                    c.recommendations << tr("Trim \"%1\" by about %2.").arg(p.title, formatDuration(p.actualSeconds - p.targetSeconds));
+            } else {
+                line = tr("%1: %2").arg(p.title, formatDuration(p.actualSeconds));
             }
+            c.details << line;
         }
-        m.measured = tr("Sections finished within 10% of their target time.");
-        if (timed + unreached == 0) {
-            m.value = formatDuration(report.totalSeconds);
-            m.why = tr("No target times set.");
-        } else {
-            const double share = double(onTime) / (timed + unreached);
-            m.value = QStringLiteral("%1 / %2").arg(onTime).arg(timed + unreached);
-            m.rating = Ratings::higherIsBetter(share, 0.8, 0.5);
-            m.why = unreached > 0 ? plural(unreached, tr("Ran out of time: %1 section not reached."), tr("Ran out of time: %1 sections not reached."))
-                    : m.rating == Rating::Good
-                        ? tr("Total %1 against a target of %2.").arg(formatDuration(report.totalSeconds), formatDuration(target))
-                        : tr("Several sections ran long. Total %1, target %2.")
-                              .arg(formatDuration(report.totalSeconds), formatDuration(target));
-        }
-        list << m;
+        if (timed + unreached > 0)
+            c.score = clampScore(100.0 * onTime / (timed + unreached) - unreached * 10.0);
+        c.summary = timed + unreached == 0
+                        ? tr("No target times set.")
+                        : tr("Total %1 against a plan of %2.").arg(formatDuration(report.totalSeconds), formatDuration(target));
+        ev.categories << c;
     }
 
-    auto visionMetric = [&](const QString &label, const char *key, double good, double poor, const QString &measured,
-                            const QString &goodWhy, const QString &badWhy) {
-        RatedMetric m;
-        m.label = label;
-        m.measured = measured;
-        const int v = vision.value(QLatin1String(key), -1).toInt();
-        m.value = pct(v);
-        if (v < 0) {
-            m.why = tr("Needs the camera.");
-        } else {
-            m.rating = Ratings::higherIsBetter(v, good, poor);
-            m.why = m.rating == Rating::Good ? goodWhy : badWhy.arg(int(good));
-        }
-        return m;
-    };
-    list << visionMetric(tr("Smiling"), "smilingPct", 35, 15,
-                         tr("Share of time a natural smile was seen (cloud AI, local tracking in between)."),
-                         tr("Warm and approachable."), tr("Smile more often; aim for at least %1% of the time."));
-    list << visionMetric(tr("Eye contact"), "eyeContactPct", 70, 45,
-                         tr("Share of time your face was turned towards the camera."),
-                         tr("You kept good eye contact."), tr("Look into the camera more; aim for %1%."));
-    list << visionMetric(tr("Engagement"), "engagementPct", 70, 50,
-                         tr("Combines eye contact, smiling and staying in frame."),
-                         tr("You came across as engaged."), tr("Facial engagement was low; aim for %1%."));
+    for (ReportCategory &c : ev.categories)
+        c.rating = ratingFor(c.score);
 
-    // Speaking pace
-    {
-        RatedMetric m;
-        m.label = tr("Speaking pace");
-        const int wpm = speech.value(QStringLiteral("wordsPerMinute"), 0).toInt();
-        m.measured = tr("Words per minute (%1).").arg(speech.value(QStringLiteral("paceSource"), tr("not measured")).toString());
-        if (wpm <= 0) {
-            m.value = tr("–");
-            m.why = tr("Needs the microphone.");
-        } else {
-            m.value = tr("%1 wpm").arg(wpm);
-            m.rating = Ratings::within(wpm, 130, 165, 110, 185);
-            m.why = m.rating == Rating::Good ? tr("A comfortable pace (130–165).")
-                    : wpm > 165               ? tr("Too fast; slow down to 130–165 wpm.")
-                                              : tr("A little slow; aim for 130–165 wpm.");
-        }
-        list << m;
+    // --- Overall
+    const QHash<QString, double> weights = {{tr("Key points"), 2.0}, {tr("Speech delivery"), 1.5}, {tr("Timing"), 1.25}};
+    QList<QPair<double, double>> parts;
+    for (const ReportCategory &c : ev.categories)
+        parts << qMakePair(double(c.score), weights.value(c.name, 1.0));
+    ev.overall = blend(parts);
+    ev.rating = ratingFor(ev.overall);
+    ev.headline = ev.overall < 0     ? tr("Not enough data")
+                  : ev.overall >= 85 ? tr("Excellent performance")
+                  : ev.overall >= 75 ? tr("Good performance")
+                  : ev.overall >= 50 ? tr("Needs some work")
+                                     : tr("Needs significant work");
+    ev.assessment = review.value(QLatin1String("summary")).toString();
+    if (ev.assessment.isEmpty())
+        ev.assessment = ev.overall >= 85   ? tr("You communicated clearly and confidently.")
+                        : ev.overall >= 75 ? tr("You communicated effectively, with room to improve.")
+                        : ev.overall >= 50 ? tr("A solid base; a few habits are holding you back.")
+                                           : tr("Focus on the improvements below and rehearse again.");
+
+    // Most important improvements: the AI's list, else the weakest categories' advice
+    for (const QJsonValue &v : review.value(QLatin1String("improvements")).toArray())
+        ev.improvements << v.toString();
+    if (ev.improvements.isEmpty()) {
+        QList<ReportCategory> sorted = ev.categories;
+        std::sort(sorted.begin(), sorted.end(), [](const ReportCategory &a, const ReportCategory &b) {
+            return (a.score < 0 ? 999 : a.score) < (b.score < 0 ? 999 : b.score);
+        });
+        for (const ReportCategory &c : sorted)
+            if (c.score >= 0 && c.score < 75 && !c.recommendations.isEmpty())
+                ev.improvements << c.recommendations.first();
     }
-
-    // Filler words
-    {
-        RatedMetric m;
-        m.label = tr("Filler words");
-        const double perMinute = speech.value(QStringLiteral("fillersPerMinute"), -1.0).toDouble();
-        const int total = speech.value(QStringLiteral("fillerTotal"), 0).toInt();
-        m.measured = tr("\"Um\", \"uh\", \"you know\"… per minute of speech (Whisper).");
-        if (perMinute < 0) {
-            m.value = tr("–");
-            m.why = tr("Needs the microphone and an AI key.");
-        } else {
-            m.value = tr("%1/min").arg(perMinute, 0, 'f', 1);
-            m.rating = Ratings::lowerIsBetter(perMinute, 2.0, 5.0);
-            m.why = m.rating == Rating::Good ? plural(total, tr("%1 filler word in total. Clean delivery."), tr("%1 filler words in total. Clean delivery."))
-                                             : plural(total, tr("%1 filler word; replace it with a short pause."), tr("%1 filler words; replace them with short pauses."));
-        }
-        list << m;
-    }
-
-    list << visionMetric(tr("Posture"), "uprightPct", 80, 60, tr("Share of cloud checks where you sat upright."),
-                         tr("Upright and confident."), tr("Sit up straight more; aim for %1%."));
-
-    // Overall: weighted average of what was measured
-    if (overall) {
-        double sum = 0, weight = 0;
-        bool objectiveMissed = false;
-        for (int i = 0; i < list.size(); ++i) {
-            const RatedMetric &m = list[i];
-            if (m.rating == Rating::None)
-                continue;
-            const double w = i == 0 ? 2.0 : (i == 1 ? 1.5 : 1.0);
-            sum += Ratings::points(m.rating) * w;
-            weight += w;
-            if (i <= 1 && m.rating == Rating::Poor)
-                objectiveMissed = true;
-        }
-        RatedMetric o;
-        o.label = tr("Overall");
-        o.measured = tr("Weighted average of everything measured; key points and timing count most.");
-        if (weight == 0) {
-            o.value = QStringLiteral("0");
-            o.why = tr("Not enough was measured for an overall score.");
-        } else {
-            const int score = int(qRound(sum / weight));
-            o.value = QString::number(score);
-            o.rating = Ratings::higherIsBetter(score, 80, 55);
-            if (objectiveMissed && o.rating == Rating::Good)
-                o.rating = Rating::NeedsWork;
-            int good = 0, needs = 0, poor = 0;
-            for (const RatedMetric &m : list) {
-                good += m.rating == Rating::Good;
-                needs += m.rating == Rating::NeedsWork;
-                poor += m.rating == Rating::Poor;
-            }
-            o.why = tr("%1 good, %2 need work, %3 poor%4.")
-                        .arg(good)
-                        .arg(needs)
-                        .arg(poor)
-                        .arg(objectiveMissed ? tr("; an important objective was missed") : QString());
-        }
-        *overall = o;
-    }
-    return list;
+    while (ev.improvements.size() > 3)
+        ev.improvements.removeLast();
+    return ev;
 }
 
 // ------------------------------------------------------------------- page
@@ -339,10 +386,10 @@ PostMeetPage::PostMeetPage(AiClient *ai, QWidget *parent)
     emptyCard->body()->setContentsMargins(24, 40, 24, 40);
     emptyCard->body()->addWidget(new SmileyBadge(64, 0.5), 0, Qt::AlignHCenter);
     emptyCard->body()->addSpacing(8);
-    QLabel *emptyTitle = Ui::label(tr("No report yet"), "cardTitle");
+    QLabel *emptyTitle = Ui::label(tr("No results yet"), "cardTitle");
     emptyTitle->setAlignment(Qt::AlignHCenter);
     emptyCard->body()->addWidget(emptyTitle);
-    QLabel *emptyText = Ui::label(tr("Finish a rehearsal or a meeting and your feedback will appear here."), "secondary");
+    QLabel *emptyText = Ui::label(tr("Finish a rehearsal or a meeting and your results will appear here."), "secondary");
     emptyText->setAlignment(Qt::AlignHCenter);
     emptyText->setWordWrap(true);
     emptyCard->body()->addWidget(emptyText);
@@ -355,7 +402,7 @@ PostMeetPage::PostMeetPage(AiClient *ai, QWidget *parent)
     auto *layout = new QVBoxLayout(content);
     layout->setContentsMargins(36, 28, 36, 28);
     layout->setSpacing(12);
-    layout->addWidget(Ui::pageHeader(tr("Post-Meet"), tr("How it went, what to work on, and what to do next.")));
+    layout->addWidget(Ui::pageHeader(tr("Results"), QString()));
     layout->addWidget(m_empty);
     layout->addWidget(m_reportWidget);
     layout->addStretch();
@@ -368,15 +415,15 @@ PostMeetPage::PostMeetPage(AiClient *ai, QWidget *parent)
 void PostMeetPage::showReport(const SessionReport &report)
 {
     m_report = report;
+    m_review = QJsonObject();
+    m_reviewError.clear();
     m_coverageFromAi = false;
-    m_coachText.clear();
-    m_coachError.clear();
-    m_coachPending = m_ai->isConfigured();
+    m_reviewPending = m_ai->isConfigured();
     ++m_reportId;
     rebuild();
     if (m_ai->isConfigured()) {
         requestCoverageJudgement();
-        requestCoachFeedback();
+        requestReview();
     }
 }
 
@@ -387,168 +434,93 @@ void PostMeetPage::rebuild()
             item->widget()->deleteLater();
         delete item;
     }
-    const SessionReport &report = m_report;
     const Theme::Colors &c = Theme::colors();
+    const Evaluation ev = evaluate(m_report, m_review);
+    const QColor overallColour = Theme::ratingColor(int(ev.rating));
 
-    // ---- Dashboard (top, most prominent)
-    RatedMetric overall;
-    const QList<RatedMetric> list = metrics(report, &overall);
-
-    const QString kind = report.mode == SessionMode::Training ? tr("Rehearsal") : tr("Meeting");
-    const QString started = QLocale().toString(report.startedAt, QLocale::ShortFormat);
-
+    // ---- Hero: the overall score dominates
     auto *hero = new Card;
+    hero->body()->setContentsMargins(28, 26, 28, 26);
     auto *heroRow = new QHBoxLayout;
-    heroRow->setSpacing(20);
-    heroRow->addWidget(new ScoreRing(overall.value.toInt(), Theme::ratingColor(int(overall.rating))));
+    heroRow->setSpacing(28);
+    heroRow->addWidget(new ScoreRing(ev.overall, overallColour, 168, tr("/ 100")));
     auto *heroText = new QVBoxLayout;
-    heroText->setSpacing(4);
-    heroText->addWidget(Ui::label(tr("%1 · %2 · %3").arg(kind, started, formatDuration(report.totalSeconds)).toUpper(),
+    heroText->setSpacing(6);
+    const QString kind = m_report.mode == SessionMode::Training ? tr("REHEARSAL SCORE") : tr("OVERALL MEETING SCORE");
+    heroText->addStretch();
+    heroText->addWidget(Ui::label(QStringLiteral("%1 · %2 · %3")
+                                      .arg(kind, QLocale().toString(m_report.startedAt, QLocale::ShortFormat),
+                                           formatDuration(m_report.totalSeconds)),
                                   "caption"));
-    auto *heroTitle = new QHBoxLayout;
-    heroTitle->addWidget(Ui::label(tr("Overall performance"), "bigValue"));
-    heroTitle->addSpacing(8);
-    heroTitle->addWidget(pill(overall.rating), 0, Qt::AlignVCenter);
-    heroTitle->addStretch();
-    heroText->addLayout(heroTitle);
-    QLabel *heroWhy = Ui::label(overall.why);
-    heroWhy->setWordWrap(true);
-    heroText->addWidget(heroWhy);
-    QLabel *legend = Ui::label(QStringLiteral("<span style='color:%1'>●</span> %2 &nbsp;&nbsp; "
-                                              "<span style='color:%3'>●</span> %4 &nbsp;&nbsp; "
-                                              "<span style='color:%5'>●</span> %6")
-                                   .arg(Theme::css(c.success), tr("achieved"), Theme::css(c.orange), tr("needs work"),
-                                        Theme::css(c.critical), tr("poor or missed")),
-                               "secondary");
-    legend->setTextFormat(Qt::RichText);
-    heroText->addWidget(legend);
+    QLabel *headline = Ui::label(ev.headline);
+    QFont hf = headline->font();
+    hf.setPointSizeF(hf.pointSizeF() * 2.0);
+    hf.setWeight(QFont::Bold);
+    headline->setFont(hf);
+    headline->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::css(ev.rating == Rating::None ? c.text : overallColour)));
+    heroText->addWidget(headline);
+    QLabel *assessment = Ui::label(ev.assessment);
+    QFont af = assessment->font();
+    af.setPointSizeF(af.pointSizeF() * 1.12);
+    assessment->setFont(af);
+    assessment->setWordWrap(true);
+    heroText->addWidget(assessment);
+    if (m_reviewPending)
+        heroText->addWidget(Ui::label(tr("The AI coach is reviewing your session…"), "secondary"));
+    else if (!m_reviewError.isEmpty())
+        heroText->addWidget(Ui::label(tr("AI review unavailable: %1").arg(m_reviewError), "secondary"));
+    heroText->addStretch();
     heroRow->addLayout(heroText, 1);
     hero->body()->addLayout(heroRow);
     m_reportLayout->addWidget(hero);
 
-    auto *gridHost = new QWidget;
-    auto *grid = new QGridLayout(gridHost);
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(12);
-    grid->setVerticalSpacing(12);
-    for (int i = 0; i < list.size(); ++i)
-        grid->addWidget(metricTile(list[i]), i / 4, i % 4);
-    for (int col = 0; col < 4; ++col)
-        grid->setColumnStretch(col, 1);
-    m_reportLayout->addWidget(gridHost);
-
-    // ---- Coach feedback
-    if (m_ai->isConfigured()) {
-        auto *coach = new Card;
-        auto *coachTitle = new QHBoxLayout;
-        QLabel *icon = Ui::label(QString());
-        icon->setPixmap(Icons::icon(Icons::Icon::Sparkle, c.accent, 18).pixmap(18, 18));
-        coachTitle->addWidget(icon);
-        coachTitle->addWidget(Ui::label(tr("Your coach's feedback"), "cardTitle"));
-        coachTitle->addStretch();
-        coach->body()->addLayout(coachTitle);
-        QLabel *text = Ui::label(QString(), m_coachText.isEmpty() ? "secondary" : nullptr);
-        text->setWordWrap(true);
-        text->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        if (!m_coachText.isEmpty()) {
-            text->setTextFormat(Qt::MarkdownText);
-            text->setText(m_coachText);
-        } else {
-            text->setText(m_coachError.isEmpty() ? tr("Writing your feedback…") : tr("Couldn't get feedback: %1").arg(m_coachError));
+    // ---- Most important improvements
+    if (!ev.improvements.isEmpty()) {
+        auto *imp = new Card(tr("Most important improvements"));
+        int n = 1;
+        for (const QString &text : ev.improvements) {
+            QLabel *l = Ui::label(QStringLiteral("<span style='color:%1; font-weight:700'>%2</span>&nbsp;&nbsp;%3")
+                                      .arg(Theme::css(c.accent))
+                                      .arg(n++)
+                                      .arg(text.toHtmlEscaped()));
+            l->setTextFormat(Qt::RichText);
+            l->setWordWrap(true);
+            imp->body()->addWidget(l);
         }
-        coach->body()->addWidget(text);
-        m_reportLayout->addWidget(coach);
+        m_reportLayout->addWidget(imp);
     }
 
-    // ---- Key points per section
-    bool anyKeyPoints = false;
-    for (const AgendaPoint &p : report.points)
-        anyKeyPoints = anyKeyPoints || !p.keyPoints.isEmpty();
-    if (anyKeyPoints) {
-        auto *kp = new Card(m_coverageFromAi ? tr("Key points (checked by the AI)") : tr("Key points"));
-        kp->body()->setSpacing(6);
-        for (const AgendaPoint &p : report.points) {
-            if (p.keyPoints.isEmpty())
-                continue;
-            QLabel *section = Ui::label(p.title + (p.reached ? QString() : tr("  (not reached)")));
-            QFont f = section->font();
-            f.setWeight(QFont::DemiBold);
-            section->setFont(f);
-            kp->body()->addSpacing(4);
-            kp->body()->addWidget(section);
-            for (int k = 0; k < p.keyPoints.size(); ++k) {
-                const bool ok = p.keyPointCovered.value(k);
-                QLabel *line = Ui::label(QStringLiteral("<span style='color:%1; font-weight:700'>%2</span>&nbsp; %3")
-                                             .arg(Theme::css(ok ? c.success : c.critical),
-                                                  ok ? QStringLiteral("✓") : QStringLiteral("✗"),
-                                                  p.keyPoints[k].toHtmlEscaped()));
-                line->setTextFormat(Qt::RichText);
-                line->setWordWrap(true);
-                line->setContentsMargins(12, 0, 0, 0);
-                kp->body()->addWidget(line);
-            }
+    // ---- Performance breakdown
+    m_reportLayout->addWidget(sectionLabel(tr("Performance breakdown")));
+    for (const ReportCategory &cat : ev.categories) {
+        const QColor colour = cat.rating == Rating::None ? c.textSecondary : Theme::ratingColor(int(cat.rating));
+        auto *row = new Expander(cat.name, cat.summary, cat.score, colour,
+                                 cat.score >= 0 ? QStringLiteral("%1%").arg(cat.score) : tr("–"));
+        QVBoxLayout *b = row->body();
+        b->addWidget(Ui::divider());
+        QLabel *measured = Ui::label(cat.measured, "secondary");
+        measured->setWordWrap(true);
+        b->addWidget(measured);
+        if (!cat.details.isEmpty()) {
+            b->addWidget(sectionLabel(tr("What we measured")));
+            for (const QString &d : cat.details)
+                b->addWidget(bulletLine(d, c.textSecondary));
         }
-        m_reportLayout->addWidget(kp);
-    }
-
-    // ---- Timing per section
-    QStringList wentWell, toImprove, nextSteps;
-    auto *timing = new Card(tr("Timing per section"));
-    auto *tg = new QGridLayout;
-    tg->setHorizontalSpacing(16);
-    tg->setVerticalSpacing(10);
-    tg->setColumnStretch(0, 1);
-    tg->addWidget(Ui::label(tr("SECTION"), "caption"), 0, 0);
-    tg->addWidget(Ui::label(tr("TARGET"), "caption"), 0, 1, Qt::AlignRight);
-    tg->addWidget(Ui::label(tr("ACTUAL"), "caption"), 0, 2, Qt::AlignRight);
-    int row = 1;
-    for (const AgendaPoint &point : report.points) {
-        const bool timed = point.targetSeconds > 0;
-        const int diff = point.actualSeconds - point.targetSeconds;
-        QString status;
-        QColor statusColor = c.textSecondary;
-        if (!point.reached) {
-            status = tr("Not reached");
-            statusColor = c.critical;
-            nextSteps << tr("Leave time for \"%1\" by tightening the earlier sections.").arg(point.title);
-        } else if (timed && diff > point.targetSeconds * 0.1) {
-            status = tr("%1 over").arg(formatDuration(diff));
-            statusColor = diff > point.targetSeconds * 0.3 ? c.critical : c.orange;
-            nextSteps << tr("Trim \"%1\" by about %2, or plan more time for it.").arg(point.title, formatDuration(diff));
-        } else if (timed) {
-            status = tr("On time");
-            statusColor = c.success;
+        if (!cat.events.isEmpty()) {
+            b->addWidget(sectionLabel(tr("Moments detected")));
+            for (const QString &e : cat.events.mid(0, 8))
+                b->addWidget(bulletLine(e, c.orange));
         }
-        tg->addWidget(Ui::label(point.title), row, 0);
-        tg->addWidget(Ui::label(timed ? formatDuration(point.targetSeconds) : tr("–"), "secondary"), row, 1, Qt::AlignRight);
-        tg->addWidget(Ui::label(point.reached ? formatDuration(point.actualSeconds) : tr("–")), row, 2, Qt::AlignRight);
-        QLabel *chip = Ui::label(status);
-        chip->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(Theme::css(statusColor)));
-        tg->addWidget(chip, row, 3, Qt::AlignRight);
-        ++row;
+        if (!cat.recommendations.isEmpty()) {
+            b->addWidget(sectionLabel(tr("Recommendations")));
+            for (const QString &r : cat.recommendations)
+                b->addWidget(bulletLine(r, c.accent));
+        }
+        m_reportLayout->addWidget(row);
     }
-    timing->body()->addLayout(tg);
-    m_reportLayout->addWidget(timing);
 
-    for (const RatedMetric &m : list) {
-        if (m.rating == Rating::Good)
-            wentWell << QStringLiteral("%1: %2").arg(m.label, m.why);
-        else if (m.rating != Rating::None)
-            toImprove << QStringLiteral("%1 (%2): %3").arg(m.label, m.value, m.why);
-    }
-    for (const Tip &tip : report.tips)
-        if (tip.severity == TipSeverity::Positive && tip.category != TipCategory::Timing)
-            wentWell << tip.text;
-    wentWell.removeDuplicates();
-    if (nextSteps.isEmpty())
-        nextSteps << tr("Rehearse once more to make it second nature.");
-
-    m_reportLayout->addWidget(listCard(tr("What went well"), wentWell, tr("Nothing recorded yet."), c.success));
-    m_reportLayout->addWidget(listCard(tr("To improve"), toImprove, tr("Nothing to flag. Well done!"), c.critical));
-    m_reportLayout->addWidget(listCard(tr("Next steps"), nextSteps, QString(), c.accent));
     if (!m_ai->isConfigured()) {
-        QLabel *note = Ui::label(tr("Add an AI key in Settings to get personal written feedback, plus smile, posture, "
-                                    "key-point and filler-word analysis."),
+        QLabel *note = Ui::label(tr("Add an AI key in Settings for expression, language and key-point analysis and a written review."),
                                  "secondary");
         note->setWordWrap(true);
         m_reportLayout->addWidget(note);
@@ -571,16 +543,28 @@ QString PostMeetPage::summarizeForAi(const SessionReport &report)
             s += QStringLiteral("    key point: %1 [%2]\n")
                      .arg(p.keyPoints[k], p.keyPointCovered.value(k) ? QStringLiteral("said") : QStringLiteral("not heard"));
     }
-    RatedMetric overall;
-    s += QStringLiteral("\nMeasured (rating):\n");
-    for (const RatedMetric &m : metrics(report, &overall))
-        s += QStringLiteral("- %1: %2 (%3)\n").arg(m.label, m.value, Ratings::name(m.rating));
+    const QVariantMap vision = report.sources.value(QStringLiteral("vision")).toMap();
+    if (!vision.isEmpty()) {
+        s += QStringLiteral("\nCamera: expression score %1/100, relaxed %2%, eye contact %3% (notes glances excluded), upright %4%, "
+                            "restless %5%. Expressions: %6. Hands: %7.\n")
+                 .arg(vision.value(QStringLiteral("expressionScore")).toInt())
+                 .arg(vision.value(QStringLiteral("relaxedPct")).toInt())
+                 .arg(vision.value(QStringLiteral("eyeContactPct")).toInt())
+                 .arg(vision.value(QStringLiteral("uprightPct")).toInt())
+                 .arg(vision.value(QStringLiteral("restlessPct")).toInt())
+                 .arg(QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(vision.value(QStringLiteral("expressions")).toMap()))
+                                            .toJson(QJsonDocument::Compact)),
+                      QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(vision.value(QStringLiteral("hands")).toMap()))
+                                            .toJson(QJsonDocument::Compact)));
+    }
     const QVariantMap speech = report.sources.value(QStringLiteral("speech")).toMap();
     if (!speech.isEmpty()) {
-        s += QStringLiteral("Longest stretch without pausing: %1. Fillers: %2.\n")
-                 .arg(formatDuration(speech.value(QStringLiteral("longestMonologueSeconds")).toInt()),
-                      QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(speech.value(QStringLiteral("fillers")).toMap()))
-                                            .toJson(QJsonDocument::Compact)));
+        s += QStringLiteral("Voice: %1 words/min, %2 fillers/min, %3 pauses/min, longest stretch without pausing %4, hedges %5.\n")
+                 .arg(speech.value(QStringLiteral("wordsPerMinute")).toInt())
+                 .arg(speech.value(QStringLiteral("fillersPerMinute")).toDouble())
+                 .arg(speech.value(QStringLiteral("pausesPerMinute")).toInt())
+                 .arg(formatDuration(speech.value(QStringLiteral("longestMonologueSeconds")).toInt()))
+                 .arg(speech.value(QStringLiteral("hedges")).toInt());
         const QString transcript = speech.value(QStringLiteral("transcript")).toString();
         if (!transcript.isEmpty())
             s += QStringLiteral("\nTranscript (may be partial):\n\"%1\"\n").arg(transcript.left(12000));
@@ -589,26 +573,34 @@ QString PostMeetPage::summarizeForAi(const SessionReport &report)
     for (const Tip &t : report.tips)
         tips << QStringLiteral("[%1] %2").arg(categoryName(t.category), t.text);
     if (!tips.isEmpty())
-        s += QStringLiteral("\nLive tips shown during the session:\n- ") + tips.join(QStringLiteral("\n- ")) + QLatin1Char('\n');
+        s += QStringLiteral("\nLive tips shown:\n- ") + tips.join(QStringLiteral("\n- ")) + QLatin1Char('\n');
     return s;
 }
 
-void PostMeetPage::requestCoachFeedback()
+void PostMeetPage::requestReview()
 {
     const int id = m_reportId;
     const QString system = QStringLiteral(
-        "You are SMILE, a warm, direct presentation coach for professionals preparing for high-stakes online "
-        "meetings and job interviews. Using only the data provided, write short, specific feedback in Markdown "
-        "with exactly three sections: '**What went well**', '**What to work on**' and '**Try this next time**'. "
-        "Two or three bullets each, under 170 words in total. Refer to the sections and key points by name and, if "
-        "there is a transcript, quote short phrases from it. A comfortable speaking pace is 130-165 words per "
-        "minute; more than 2 filler words per minute is worth working on. Never invent data that isn't given.");
-    m_ai->chat(system, summarizeForAi(m_report), 1500, [this, id](const QString &text, const QString &error) {
+        "You are SMILE, a warm, direct communication coach for professionals in high-stakes online meetings and job "
+        "interviews. Review the session using only the data given. Be realistic: a calm neutral face is fine; brief "
+        "glances at notes are fine. Reply with ONLY JSON:\n"
+        "{\"summary\": \"one encouraging, specific sentence assessing the whole performance\",\n"
+        " \"improvements\": [\"the 3 most important, concrete improvements, most important first\"],\n"
+        " \"delivery\": {\"clarity\": 0-100, \"confidence\": 0-100, \"articulation\": 0-100},\n"
+        " \"language\": [{\"phrase\": \"exact unprofessional or weak phrase from the transcript\", \"suggestion\": \"a more "
+        "professional alternative\", \"why\": \"a few words\"}],\n"
+        " \"categories\": {\"Speech delivery\": \"one sentence\", \"Facial engagement\": \"one sentence\", \"Eye contact\": "
+        "\"one sentence\", \"Professional language\": \"one sentence\", \"Body language\": \"one sentence\"}}\n"
+        "Only include language items that really appear in the transcript; leave the list empty if there are none. "
+        "If there is no transcript, omit delivery.");
+    m_ai->chat(system, summarizeForAi(m_report), 2500, [this, id](const QString &text, const QString &error) {
         if (id != m_reportId)
             return;
-        m_coachPending = false;
-        m_coachText = text;
-        m_coachError = error;
+        m_reviewPending = false;
+        if (!error.isEmpty())
+            m_reviewError = error;
+        else
+            m_review = AiClient::extractJson(text);
         rebuild();
     });
 }
@@ -635,8 +627,7 @@ void PostMeetPage::requestCoverageJudgement()
         "the full transcript. Reply with ONLY JSON: {\"sections\": [{\"title\": \"...\", \"covered\": [true|false, ...]}]} "
         "with one boolean per key point, in order.");
     const QString user = QStringLiteral("Sections:\n%1\n\nFull transcript:\n\"%2\"")
-                             .arg(QString::fromUtf8(QJsonDocument(sections).toJson(QJsonDocument::Indented)),
-                                  transcript.left(15000));
+                             .arg(QString::fromUtf8(QJsonDocument(sections).toJson(QJsonDocument::Indented)), transcript.left(15000));
     m_ai->chat(system, user, 2000, [this, id](const QString &text, const QString &error) {
         if (id != m_reportId || !error.isEmpty())
             return;

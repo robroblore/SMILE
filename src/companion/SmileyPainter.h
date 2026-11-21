@@ -17,6 +17,8 @@ struct Face {
     qreal lookX = 0.0;   // -1 left .. 1 right
     qreal lookY = 0.0;   // -1 up .. 1 down
     qreal squash = 0.0;  // -1 tall .. 1 wide (for bouncy pop-in)
+    qreal mouthOpen = 0.0; // 0 closed .. 1 wide open (talking / lip sync)
+    qreal browRaise = 0.0; // 0 .. 1 raised brows (interested, questioning)
 };
 
 // Smoothly move each feature of `current` towards `target` (0 < rate <= 1).

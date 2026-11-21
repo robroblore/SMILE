@@ -108,9 +108,36 @@ void MicrophoneMonitor::resetStats()
     m_runMs = 0;
     m_pauseMs = 0;
     m_longestRunMs = 0;
+    m_pauses = 0;
     m_chunk.clear();
     m_chunkSpeechMs = 0;
     m_window.fill(0, kWindowFrames);
+}
+
+void MicrophoneMonitor::setUtterances(bool on)
+{
+    m_utterances = on;
+    discardUtterance();
+}
+
+void MicrophoneMonitor::setIgnoreInput(bool ignore)
+{
+    m_ignore = ignore;
+    if (ignore)
+        discardUtterance();
+}
+
+void MicrophoneMonitor::discardUtterance()
+{
+    m_inUtt = false;
+    m_utt.clear();
+    m_uttSpeechMs = 0;
+    m_uttSilenceMs = 0;
+}
+
+QByteArray MicrophoneMonitor::currentUtteranceWav() const
+{
+    return m_utt.isEmpty() ? QByteArray() : wavFromPcm16(m_utt, kRate);
 }
 
 void MicrophoneMonitor::setChunking(bool on)
@@ -300,6 +327,8 @@ void MicrophoneMonitor::processFrame(const float *samples, int count)
 
     // Talk-time statistics
     if (m_speaking) {
+        if (m_pauseMs >= 400 && m_pauseMs <= 2500)
+            ++m_pauses;
         m_speechMs += kFrameMs;
         if (!m_inRun) {
             m_inRun = true;
@@ -350,6 +379,34 @@ void MicrophoneMonitor::processFrame(const float *samples, int count)
     if (!m_levelTimer.isValid() || m_levelTimer.elapsed() > 50) {
         m_levelTimer.restart();
         emit levelChanged(m_level);
+    }
+
+    // Utterances: one sentence at a time, sent once you pause
+    if (m_utterances && !m_ignore) {
+        QVector<qint16> frame(count);
+        for (int i = 0; i < count; ++i)
+            frame[i] = qint16(qBound(-1.0f, samples[i], 1.0f) * 32767);
+        if (m_speaking) {
+            if (!m_inUtt) {
+                m_inUtt = true;
+                m_utt = m_preroll; // keep the start of the first word
+                m_uttSpeechMs = 0;
+            }
+            m_utt += frame;
+            m_uttSpeechMs += kFrameMs;
+            m_uttSilenceMs = 0;
+        } else if (m_inUtt) {
+            m_utt += frame;
+            m_uttSilenceMs += kFrameMs;
+            if (m_uttSilenceMs >= 1100) {
+                if (m_uttSpeechMs >= 600)
+                    emit utteranceReady(wavFromPcm16(m_utt, kRate), m_uttSpeechMs);
+                discardUtterance();
+            }
+        }
+        m_preroll += frame;
+        if (m_preroll.size() > kFrameSamples * 10)
+            m_preroll.remove(0, m_preroll.size() - kFrameSamples * 10);
     }
 
     // Chunking

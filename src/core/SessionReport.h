@@ -8,8 +8,10 @@
 #include "core/Tip.h"
 
 enum class SessionMode {
-    Training, // a rehearsal
-    Meeting,  // a real meeting
+    Training,   // a full rehearsal
+    Meeting,    // a real meeting
+    Practice,   // practising one section
+    Simulation, // a simulated meeting with the AI avatar
 };
 
 // Everything that happened in one session. The Post-Meet page turns this into

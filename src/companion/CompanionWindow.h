@@ -14,6 +14,18 @@
 // pops up in the corner of the screen, says one short thing, and slips away
 // again. Tips are rate-limited so it never nags. It never touches the camera
 // or video feed.
+// Live timing shown in the small card next to the avatar (optional).
+struct SectionTimerInfo {
+    bool running = false;
+    QString section;
+    int index = 0;
+    int count = 0;
+    int elapsedSeconds = 0;
+    int targetSeconds = 0;
+    int scheduleDeltaSeconds = 0; // + behind schedule, - ahead
+    QString status;               // "Listening · Live feedback active"
+};
+
 class CompanionWindow : public QWidget
 {
     Q_OBJECT
@@ -30,6 +42,9 @@ public slots:
     void dismiss();
     void setSessionActive(bool active);
     void resetPosition();
+    // Docked: the avatar stays visible with the section timer beside it.
+    void setTimerVisible(bool visible);
+    void setTimerInfo(const SectionTimerInfo &info);
 
 signals:
     void liveTipPresented(const Tip &tip);
@@ -61,6 +76,10 @@ private:
     void scheduleBlink();
     SmileyPainter::Face faceFor(const Tip &tip) const;
     QRectF faceRect() const;
+    QRectF timerRect() const;
+    void updateLayout();
+    void updateMask();
+    void paintTimer(QPainter &p);
 
     State m_state = State::Hidden;
     std::optional<Tip> m_current;
@@ -85,6 +104,8 @@ private:
     QRectF m_bubble;
     bool m_hover = false;
     bool m_showReason = false;
+    bool m_docked = false;
+    SectionTimerInfo m_timer;
 
     QPoint m_pressPos;
     bool m_pressed = false;

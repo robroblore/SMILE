@@ -187,7 +187,7 @@ MainWindow::~MainWindow()
 void MainWindow::notifyHaptics(const Tip &tip)
 {
     if (!m_controller->isRunning() || m_controller->mode() != SessionMode::Meeting
-        || tip.severity != TipSeverity::Warning || tip.source == QLatin1String("demo")
+        || tip.severity == TipSeverity::Positive || tip.source == QLatin1String("demo")
         || !m_controller->isCategoryShownLive(tip.category))
         return;
 

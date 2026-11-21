@@ -159,14 +159,14 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     hapticToggle->setChecked(settings.hapticFeedbackEnabled());
     hapticCard->body()->addWidget(new OptionRow(
         tr("Simulate mouse haptics"),
-        tr("Log a simulated mouse pulse when a warning appears during a meeting."),
+        tr("Log a simulated mouse pulse when a coaching tip appears during a meeting."),
         hapticToggle));
     connect(hapticToggle, &QAbstractButton::toggled, &settings, &AppSettings::setHapticFeedbackEnabled);
     auto *physicalHaptics = new ToggleSwitch;
     physicalHaptics->setChecked(settings.physicalHapticsEnabled());
     hapticCard->body()->addWidget(new OptionRow(
         tr("Play mouse haptics"),
-        tr("Pulse an MX Master 4 for visible meeting warnings. Requires the SMILE plugin in Logi Options+. "
+        tr("Pulse an MX Master 4 for visible meeting coaching tips. Requires the SMILE plugin in Logi Options+. "
            "Overrides simulation while on."),
         physicalHaptics));
     connect(physicalHaptics, &QAbstractButton::toggled, &settings, &AppSettings::setPhysicalHapticsEnabled);

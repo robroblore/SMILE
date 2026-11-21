@@ -43,6 +43,7 @@ signals:
     void endSessionRequested();
     void debugViewRequested();
     void liveTipPresented(const Tip &tip);
+    void liveTipsSnoozed();
 
 private:
     void launch();

@@ -14,11 +14,18 @@ void HapticMouse::requestPulse(TipCategory category)
         categoryName(category));
 }
 
-void HapticMouse::playPulse(TipCategory category)
+void HapticMouse::playPulse(TipCategory category, int strength, bool logRequest)
 {
-    const QByteArray payload = QByteArrayLiteral("SMILE:pulse:v1");
+    static const QByteArray payloads[] = {
+        QByteArrayLiteral("SMILE:pulse:v1:low"),
+        QByteArrayLiteral("SMILE:pulse:v1:medium"),
+        QByteArrayLiteral("SMILE:pulse:v1"),
+    };
+    const QByteArray &payload = payloads[qBound(0, strength, 2)];
     QUdpSocket socket;
     const bool sent = socket.writeDatagram(payload, QHostAddress::LocalHost, 48643) == payload.size();
+    if (!logRequest)
+        return;
     const QString title = sent
         ? QCoreApplication::translate("HapticMouse", "Mouse pulse request sent")
         : QCoreApplication::translate("HapticMouse", "Could not send mouse pulse request");

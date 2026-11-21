@@ -2,7 +2,7 @@ type: plugin4
 name: SmileHaptics
 displayName: SMILE Haptics
 description: Tactile alerts for SMILE meeting warnings.
-version: 0.1.1
+version: 0.2.0
 author: SMILE
 pluginFileName: SmileHapticsPlugin.dll
 pluginFolderWin: bin

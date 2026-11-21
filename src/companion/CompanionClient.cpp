@@ -131,6 +131,7 @@ void CompanionClient::useInProcess()
     connect(m_local, &CompanionWindow::endSessionRequested, this, &CompanionClient::endSessionRequested);
     connect(m_local, &CompanionWindow::debugViewRequested, this, &CompanionClient::debugViewRequested);
     connect(m_local, &CompanionWindow::liveTipPresented, this, &CompanionClient::liveTipPresented);
+    connect(m_local, &CompanionWindow::liveTipsSnoozed, this, &CompanionClient::liveTipsSnoozed);
     m_local->setMinimumGap(m_gapMs);
     m_local->setSessionActive(m_sessionActive);
     m_local->setTimerVisible(m_timerVisible);
@@ -175,6 +176,8 @@ void CompanionClient::onReadyRead()
             emit endSessionRequested();
         else if (evt == QLatin1String("debugView"))
             emit debugViewRequested();
+        else if (evt == QLatin1String("tipsSnoozed"))
+            emit liveTipsSnoozed();
         else if (evt == QLatin1String("presented"))
             emit liveTipPresented(CompanionProtocol::tipFromJson(m.value(QLatin1String("tip")).toObject()));
     }

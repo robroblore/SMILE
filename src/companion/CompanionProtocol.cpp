@@ -8,7 +8,9 @@ QJsonObject tipToJson(const Tip &tip)
             {QStringLiteral("severity"), int(tip.severity)},
             {QStringLiteral("text"), tip.text},
             {QStringLiteral("source"), tip.source},
-            {QStringLiteral("reason"), tip.reason}};
+            {QStringLiteral("reason"), tip.reason},
+            {QStringLiteral("warningId"), tip.warningId},
+            {QStringLiteral("raisedAt"), tip.raisedAt.toString(Qt::ISODateWithMs)}};
 }
 
 Tip tipFromJson(const QJsonObject &o)
@@ -19,6 +21,10 @@ Tip tipFromJson(const QJsonObject &o)
     t.text = o.value(QLatin1String("text")).toString();
     t.source = o.value(QLatin1String("source")).toString();
     t.reason = o.value(QLatin1String("reason")).toString();
+    t.warningId = o.value(QLatin1String("warningId")).toString();
+    const auto raisedAt = QDateTime::fromString(o.value(QLatin1String("raisedAt")).toString(), Qt::ISODateWithMs);
+    if (raisedAt.isValid())
+        t.raisedAt = raisedAt;
     return t;
 }
 

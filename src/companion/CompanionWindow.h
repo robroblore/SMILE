@@ -48,6 +48,7 @@ public slots:
 
 signals:
     void liveTipPresented(const Tip &tip);
+    void liveTipsSnoozed();
     void openMainWindowRequested();
     void nextPointRequested();
     void endSessionRequested();

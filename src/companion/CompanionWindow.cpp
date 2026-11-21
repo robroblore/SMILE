@@ -678,6 +678,7 @@ void CompanionWindow::contextMenuEvent(QContextMenuEvent *event)
     menu.addAction(tr("Dismiss"), this, &CompanionWindow::dismiss)->setEnabled(m_current.has_value());
     menu.addAction(tr("Snooze tips for 10 minutes"), this, [this] {
         m_snoozedUntil = QDeadlineTimer(10 * 60 * 1000);
+        emit liveTipsSnoozed();
         m_pending.reset();
         dismiss();
     });

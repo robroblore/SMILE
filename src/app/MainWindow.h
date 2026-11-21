@@ -1,8 +1,12 @@
 #pragma once
 
+#include <QElapsedTimer>
+#include <QHash>
 #include <QList>
 #include <QMainWindow>
 #include <QTimer>
+
+#include "core/Tip.h"
 
 class AiClient;
 class CameraMonitor;
@@ -38,6 +42,14 @@ private:
     void previewTip();
     void showDebug();
     void updateCompanionTimer();
+    void notifyHaptics(const Tip &tip);
+    void repeatHaptics();
+    void stopHaptics();
+
+    struct ActiveHapticWarning {
+        Tip tip;
+        QElapsedTimer sinceFirstPulse;
+    };
 
     SessionController *m_controller;
     AiClient *m_ai;
@@ -49,4 +61,6 @@ private:
     QSystemTrayIcon *m_tray = nullptr;
     DebugWindow *m_debug = nullptr;
     QTimer *m_timerTick = nullptr;
+    QTimer m_hapticsTimer;
+    QHash<QString, ActiveHapticWarning> m_hapticWarnings;
 };

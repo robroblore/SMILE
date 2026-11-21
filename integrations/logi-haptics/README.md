@@ -5,6 +5,7 @@ Requires an MX Master 4, Logi Options+ with Logi Plugin Service 6.4 or newer, an
 1. Run `dotnet build -c Release` in this folder.
 2. Create a plain-text file named `SmileHaptics.link` containing the absolute path to this folder's `build/Release` directory. Put it in `%LOCALAPPDATA%\Logi\LogiPluginService\Plugins` on Windows or `~/Library/Application Support/Logi/LogiPluginService/Plugins` on macOS.
 3. In Logi Options+ settings, restart Logi Plugin Service. Enable haptics for SMILE Haptics in the MX Master 4 settings if needed.
-4. In SMILE, turn on **Settings → Debugging → Play mouse haptics**. Start a meeting with a short timed agenda item and let it run over. Expect one pulse when the Time's up hint appears, with no Actions Ring binding required.
+4. In SMILE, turn on **Settings → Debugging → Play mouse haptics**. Start a meeting with a short timed agenda item and let it run over. Expect pulses when the Time's up hint appears and until you advance or end the meeting. No Actions Ring binding is required.
+5. Set **Vibration duration** to **Until resolved** (the default) or a limit of 1–120 seconds. Set **Vibration sensitivity** to Low, Medium, or High. Warnings such as a word already spoken receive one pulse because they have no ongoing condition to track.
 
-SMILE sends only the fixed message `SMILE:pulse:v1` to the plugin over UDP on `127.0.0.1:48643`. The plugin accepts no remote traffic and limits pulses to one every 250 ms. SMILE's debug entry confirms that a request was sent. The plugin's log confirms that it raised the event. Neither can confirm that the mouse physically vibrated.
+SMILE sends a fixed pulse message (optionally suffixed with `:low` or `:medium`) to the plugin over UDP on `127.0.0.1:48643`. The plugin accepts no remote traffic and limits pulses to one every 250 ms. SMILE's debug entry confirms that a request was sent. The plugin's log confirms that it raised the event. Neither can confirm that the mouse physically vibrated.

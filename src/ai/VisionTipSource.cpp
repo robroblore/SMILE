@@ -593,6 +593,19 @@ void VisionTipSource::alert(const QString &title, const QString &detail)
     LiveSignals::instance().addEvent(LiveSignals::Event::Alert, title, detail);
 }
 
+bool VisionTipSource::isWarningActive(const QString &warningId) const
+{
+    if (!m_running || !m_camera->isActive() || !AppSettings::instance().useCamera())
+        return false;
+    if (warningId == QLatin1String("noface"))
+        return m_faceMissingSince >= 0;
+    if (!AppSettings::instance().cloudAnalysis() || !cloudFresh())
+        return false;
+    if (warningId == QLatin1String("posture"))
+        return !m_posture.isEmpty();
+    return warningId == QLatin1String("hands-inappropriate") && m_streak.value(warningId) >= 2;
+}
+
 void VisionTipSource::tip(const QString &key, TipCategory category, TipSeverity severity, const QString &text,
                           const QString &reason)
 {
@@ -608,6 +621,8 @@ void VisionTipSource::tip(const QString &key, TipCategory category, TipSeverity 
     t.text = text;
     t.reason = reason;
     t.source = name();
+    if (severity == TipSeverity::Warning)
+        t.warningId = key;
     emit tipRaised(t);
 }
 

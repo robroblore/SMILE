@@ -177,6 +177,32 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
            "Overrides simulation while on."),
         physicalHaptics));
     connect(physicalHaptics, &QAbstractButton::toggled, &settings, &AppSettings::setPhysicalHapticsEnabled);
+    auto addHapticSetting = [debugCard](const QString &title, const QString &description, QWidget *control) {
+        auto *row = new QHBoxLayout;
+        row->setContentsMargins(10, 4, 10, 4);
+        auto *labels = new QVBoxLayout;
+        labels->setSpacing(1);
+        labels->addWidget(Ui::label(title));
+        labels->addWidget(Ui::label(description, "secondary"));
+        row->addLayout(labels, 1);
+        control->setAccessibleName(title);
+        row->addWidget(control);
+        debugCard->body()->addLayout(row);
+    };
+    auto *hapticDuration = new QSpinBox;
+    hapticDuration->setRange(0, 120);
+    hapticDuration->setSpecialValueText(tr("Until resolved"));
+    hapticDuration->setSuffix(tr(" s"));
+    hapticDuration->setValue(settings.hapticDurationSeconds());
+    addHapticSetting(tr("Vibration duration"),
+                     tr("Repeat once a second until the issue clears or this time limit is reached."),
+                     hapticDuration);
+    connect(hapticDuration, &QSpinBox::valueChanged, &settings, &AppSettings::setHapticDurationSeconds);
+    auto *hapticStrength = new QComboBox;
+    hapticStrength->addItems({tr("Low"), tr("Medium"), tr("High")});
+    hapticStrength->setCurrentIndex(settings.hapticStrength());
+    addHapticSetting(tr("Vibration sensitivity"), tr("Adjust how strong each pulse feels."), hapticStrength);
+    connect(hapticStrength, &QComboBox::currentIndexChanged, &settings, &AppSettings::setHapticStrength);
     auto *openDebug = new QPushButton(tr("Open debug view"));
     openDebug->setIcon(Icons::icon(Icons::Icon::Bug, Theme::colors().text, 14));
     openDebug->setCursor(Qt::PointingHandCursor);

@@ -24,6 +24,7 @@ public:
 
     // Numbers and text for the Post-Meet report, collected after stop().
     virtual QVariantMap reportData() const { return {}; }
+    virtual bool isWarningActive(const QString &) const { return false; }
 
     bool isEnabled() const { return m_enabled; }
     void setEnabled(bool enabled) { m_enabled = enabled; }

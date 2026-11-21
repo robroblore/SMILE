@@ -4,4 +4,5 @@
 
 namespace HapticMouse {
 void requestPulse(TipCategory category);
+void playPulse(TipCategory category);
 }

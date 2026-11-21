@@ -261,6 +261,17 @@ void AppSettings::setHapticFeedbackEnabled(bool on)
     emit changed();
 }
 
+bool AppSettings::physicalHapticsEnabled() const
+{
+    return value("haptics/physicalEnabled", false).toBool();
+}
+
+void AppSettings::setPhysicalHapticsEnabled(bool on)
+{
+    store("haptics/physicalEnabled", on);
+    emit changed();
+}
+
 QString AppSettings::speechText() const
 {
     return value("training/speech", QString()).toString();

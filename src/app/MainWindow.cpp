@@ -98,11 +98,15 @@ MainWindow::MainWindow(QWidget *parent)
         m_companion->showTip(tip);
     });
     connect(m_companion, &CompanionClient::liveTipPresented, this, [this](const Tip &tip) {
-        if (m_controller->isRunning() && m_controller->mode() == SessionMode::Meeting
-            && tip.severity == TipSeverity::Warning && tip.source != QLatin1String("demo")
-            && AppSettings::instance().hapticFeedbackEnabled()) {
+        if (!m_controller->isRunning() || m_controller->mode() != SessionMode::Meeting
+            || tip.severity != TipSeverity::Warning || tip.source == QLatin1String("demo"))
+            return;
+
+        const auto &settings = AppSettings::instance();
+        if (settings.physicalHapticsEnabled())
+            HapticMouse::playPulse(tip.category);
+        else if (settings.hapticFeedbackEnabled())
             HapticMouse::requestPulse(tip.category);
-        }
     });
     // Every tip, with its reason, goes to the debug log
     connect(m_controller, &SessionController::tipLogged, this, [](const Tip &tip) {

@@ -1,0 +1,12 @@
+type: plugin4
+name: SmileHaptics
+displayName: SMILE Haptics
+description: Tactile alerts for SMILE meeting warnings.
+version: 0.1.1
+author: SMILE
+pluginFileName: SmileHapticsPlugin.dll
+pluginFolderWin: bin
+pluginFolderMac: bin
+minimumLoupedeckVersion: 6.4
+pluginCapabilities:
+    - HasHapticMapping

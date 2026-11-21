@@ -80,6 +80,8 @@ public:
     QString speechModel() const;
     bool hapticFeedbackEnabled() const;
     void setHapticFeedbackEnabled(bool on);
+    bool physicalHapticsEnabled() const;
+    void setPhysicalHapticsEnabled(bool on);
 
     // The Training page's speech text, its mode and the structured sections
     QString speechText() const;

@@ -1,0 +1,6 @@
+displayName: SMILE meeting alerts
+description: Haptic alerts for visible meeting warnings.
+events:
+    - name: meetingWarning
+      displayName: Meeting warning
+      description: A meeting warning appeared in SMILE.

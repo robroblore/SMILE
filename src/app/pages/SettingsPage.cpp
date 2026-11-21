@@ -169,6 +169,14 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
         tr("Log a simulated mouse pulse when a warning appears during a meeting."),
         hapticToggle));
     connect(hapticToggle, &QAbstractButton::toggled, &settings, &AppSettings::setHapticFeedbackEnabled);
+    auto *physicalHaptics = new ToggleSwitch;
+    physicalHaptics->setChecked(settings.physicalHapticsEnabled());
+    debugCard->body()->addWidget(new OptionRow(
+        tr("Play mouse haptics"),
+        tr("Pulse an MX Master 4 for visible meeting warnings. Requires the SMILE plugin in Logi Options+. "
+           "Overrides simulation while on."),
+        physicalHaptics));
+    connect(physicalHaptics, &QAbstractButton::toggled, &settings, &AppSettings::setPhysicalHapticsEnabled);
     auto *openDebug = new QPushButton(tr("Open debug view"));
     openDebug->setIcon(Icons::icon(Icons::Icon::Bug, Theme::colors().text, 14));
     openDebug->setCursor(Qt::PointingHandCursor);

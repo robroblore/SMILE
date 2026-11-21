@@ -133,6 +133,7 @@ void CompanionClient::useInProcess()
     connect(m_local, &CompanionWindow::debugViewRequested, this, &CompanionClient::debugViewRequested);
     connect(m_local, &CompanionWindow::liveTipPresented, this, &CompanionClient::liveTipPresented);
     connect(m_local, &CompanionWindow::liveTipClosed, this, &CompanionClient::liveTipClosed);
+    connect(m_local, &CompanionWindow::muteRequested, this, &CompanionClient::muteRequested);
     m_local->setMinimumGap(m_gapMs);
     m_local->setSessionActive(m_sessionActive);
     m_local->setTimerVisible(m_timerVisible);
@@ -177,6 +178,8 @@ void CompanionClient::onReadyRead()
             emit endSessionRequested();
         else if (evt == QLatin1String("debugView"))
             emit debugViewRequested();
+        else if (evt == QLatin1String("mute"))
+            emit muteRequested(m.value(QLatin1String("on")).toBool());
         else if (evt == QLatin1String("tipClosed"))
             emit liveTipClosed();
         else if (evt == QLatin1String("presented"))

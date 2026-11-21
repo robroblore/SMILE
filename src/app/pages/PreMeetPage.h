@@ -6,6 +6,8 @@
 class AiClient;
 class CameraMonitor;
 class CameraPreview;
+class LevelMeter;
+class MicrophoneMonitor;
 class QAbstractButton;
 class QLabel;
 class QPushButton;
@@ -19,7 +21,7 @@ class PreMeetPage : public QWidget
     Q_OBJECT
 
 public:
-    PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent = nullptr);
+    PreMeetPage(CameraMonitor *camera, AiClient *ai, MicrophoneMonitor *mic, QWidget *parent = nullptr);
 
     static QString checkPrompt();
 
@@ -34,11 +36,17 @@ private:
     void runCheck();
     void updateProgress();
     void updateCameraState();
+    void updateSound();
     void showIssues(const QStringList &issues, const QStringList &good, const QString &advice);
 
     CameraMonitor *m_camera;
     AiClient *m_ai;
     bool m_acquired = false;
+    MicrophoneMonitor *m_mic;
+    bool m_micAcquired = false;
+    qint64 m_listeningSince = 0;
+    LevelMeter *m_meter;
+    QLabel *m_sound;
 
     CameraPreview *m_preview;
     QPushButton *m_checkButton;

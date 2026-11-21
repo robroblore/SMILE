@@ -293,6 +293,19 @@ QString AppSettings::speechModel() const
     return value("ai/speechModel", QStringLiteral("hexgrad/Kokoro-82M")).toString();
 }
 
+bool AppSettings::tipsMuted() const
+{
+    return value("coach/tipsMuted", false).toBool();
+}
+
+void AppSettings::setTipsMuted(bool muted)
+{
+    if (muted == tipsMuted())
+        return;
+    store("coach/tipsMuted", muted);
+    emit changed();
+}
+
 bool AppSettings::debugMode() const
 {
     return value("debug/enabled", false).toBool();

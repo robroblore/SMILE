@@ -1,5 +1,11 @@
 #include "app/pages/PostMeetPage.h"
 
+#include "app/SessionHistory.h"
+
+#include <QPushButton>
+
+#include <QMessageBox>
+
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -446,10 +452,14 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
     for (const QJsonValue &v : review.value(QLatin1String("improvements")).toArray())
         ev.improvements << v.toString();
     if (ev.improvements.isEmpty()) {
+        // Most important first: how far below "good" a category is, times how much it matters,
+        // so body language comes before timing and key points
         QList<ReportCategory> sorted = ev.categories;
-        std::sort(sorted.begin(), sorted.end(), [](const ReportCategory &a, const ReportCategory &b) {
-            return (a.score < 0 ? 999 : a.score) < (b.score < 0 ? 999 : b.score);
-        });
+        auto urgency = [&weights, good](const ReportCategory &c) {
+            return c.score < 0 ? -1.0 : (good - c.score) * weights.value(c.name, 1.0);
+        };
+        std::stable_sort(sorted.begin(), sorted.end(),
+                         [&urgency](const ReportCategory &a, const ReportCategory &b) { return urgency(a) > urgency(b); });
         for (const ReportCategory &c : sorted)
             if (c.score >= 0 && c.score < good && !c.recommendations.isEmpty())
                 ev.improvements << c.recommendations.first();
@@ -461,21 +471,66 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
 
 // ------------------------------------------------------------------- page
 
+namespace {
+// One category of a report, folded: name, score and summary; details inside
+Expander *categoryExpander(const ReportCategory &cat, const QString &extra = QString())
+{
+    const Theme::Colors &c = Theme::colors();
+    const QColor colour = cat.rating == Rating::None ? c.textSecondary : Theme::ratingColor(int(cat.rating));
+    auto *row = new Expander(cat.name, extra.isEmpty() ? cat.summary : cat.summary + QStringLiteral("  ·  ") + extra, cat.score,
+                             colour, cat.score >= 0 ? QStringLiteral("%1%").arg(cat.score) : PostMeetPage::tr("–"));
+    QVBoxLayout *b = row->body();
+    b->addWidget(Ui::divider());
+    if (!cat.measured.isEmpty()) {
+        QLabel *measured = Ui::label(cat.measured, "secondary");
+        measured->setWordWrap(true);
+        b->addWidget(measured);
+    }
+    if (!cat.details.isEmpty()) {
+        b->addWidget(sectionLabel(PostMeetPage::tr("What we measured")));
+        for (const QString &d : cat.details)
+            b->addWidget(bulletLine(d, c.textSecondary));
+    }
+    if (!cat.events.isEmpty()) {
+        b->addWidget(sectionLabel(PostMeetPage::tr("Moments detected")));
+        for (const QString &e : cat.events.mid(0, 8))
+            b->addWidget(bulletLine(e, c.orange));
+    }
+    if (!cat.recommendations.isEmpty()) {
+        b->addWidget(sectionLabel(PostMeetPage::tr("Recommendations")));
+        for (const QString &r : cat.recommendations)
+            b->addWidget(bulletLine(r, c.accent));
+    }
+    return row;
+}
+
+QString deltaText(int now, int before)
+{
+    if (now < 0 || before < 0)
+        return QString();
+    const int d = now - before;
+    return d > 0 ? PostMeetPage::tr("▲ %1 since last time").arg(d)
+         : d < 0 ? PostMeetPage::tr("▼ %1 since last time").arg(-d)
+                 : PostMeetPage::tr("same as last time");
+}
+} // namespace
+
 PostMeetPage::PostMeetPage(AiClient *ai, QWidget *parent)
     : QWidget(parent)
     , m_ai(ai)
     , m_empty(new Card)
     , m_reportWidget(new QWidget)
     , m_reportLayout(new QVBoxLayout(m_reportWidget))
+    , m_historyLayout(new QVBoxLayout)
 {
     auto *emptyCard = static_cast<Card *>(m_empty);
     emptyCard->body()->setContentsMargins(24, 40, 24, 40);
     emptyCard->body()->addWidget(new SmileyBadge(64, 0.5), 0, Qt::AlignHCenter);
     emptyCard->body()->addSpacing(8);
-    QLabel *emptyTitle = Ui::label(tr("No results yet"), "cardTitle");
+    QLabel *emptyTitle = Ui::label(tr("No new results"), "cardTitle");
     emptyTitle->setAlignment(Qt::AlignHCenter);
     emptyCard->body()->addWidget(emptyTitle);
-    QLabel *emptyText = Ui::label(tr("Finish a rehearsal or a meeting and your results will appear here."), "secondary");
+    QLabel *emptyText = Ui::label(tr("Finish a session to see its results here. Earlier sessions are below."), "secondary");
     emptyText->setAlignment(Qt::AlignHCenter);
     emptyText->setWordWrap(true);
     emptyCard->body()->addWidget(emptyText);
@@ -491,11 +546,95 @@ PostMeetPage::PostMeetPage(AiClient *ai, QWidget *parent)
     layout->addWidget(Ui::pageHeader(tr("Results"), QString()));
     layout->addWidget(m_empty);
     layout->addWidget(m_reportWidget);
+    m_historyLayout->setSpacing(10);
+    layout->addLayout(m_historyLayout);
     layout->addStretch();
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->addWidget(Ui::scrollPage(content));
+
+    connect(&SessionHistory::instance(), &SessionHistory::changed, this, &PostMeetPage::rebuildHistory);
+    rebuildHistory();
+}
+
+void PostMeetPage::rebuildHistory()
+{
+    while (QLayoutItem *item = m_historyLayout->takeAt(0)) {
+        if (item->widget())
+            item->widget()->deleteLater();
+        delete item;
+    }
+    const Theme::Colors &c = Theme::colors();
+    const QString currentId = m_report.startedAt.isValid() ? SessionHistory::idFor(m_report) : QString();
+    const QList<HistoryEntry> &entries = SessionHistory::instance().entries();
+    int current = -1;
+    for (const HistoryEntry &e : entries)
+        if (e.id == currentId)
+            current = e.score;
+
+    auto *head = new QHBoxLayout;
+    head->addWidget(sectionLabel(tr("Earlier sessions")));
+    head->addStretch();
+    auto *clear = new QPushButton(tr("Delete history"));
+    clear->setObjectName(QStringLiteral("subtle"));
+    clear->setCursor(Qt::PointingHandCursor);
+    clear->setEnabled(!entries.isEmpty());
+    connect(clear, &QPushButton::clicked, this, [this] {
+        const auto answer = QMessageBox::question(this, tr("Delete history"),
+                                                  tr("Delete all saved sessions, scores and badges from this computer? "
+                                                     "This can't be undone."),
+                                                  QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer == QMessageBox::Yes)
+            SessionHistory::instance().clear();
+    });
+    head->addWidget(clear);
+    auto *headWidget = new QWidget;
+    headWidget->setLayout(head);
+    head->setContentsMargins(0, 8, 0, 0);
+    m_historyLayout->addWidget(headWidget);
+
+    int shown = 0;
+    for (int i = int(entries.size()) - 1; i >= 0 && shown < 30; --i) {
+        const HistoryEntry &e = entries[i];
+        if (e.id == currentId)
+            continue;
+        ++shown;
+        const Rating rating = ratingFor(e.score);
+        QString summary = e.headline;
+        if (current >= 0 && e.score >= 0)
+            summary += current > e.score   ? tr("  ·  you scored %1 more this time").arg(current - e.score)
+                       : current < e.score ? tr("  ·  %1 higher than this time").arg(e.score - current)
+                                           : tr("  ·  same as this time");
+        auto *x = new Expander(QStringLiteral("%1 · %2 · %3")
+                                   .arg(QLocale().toString(e.at, QLocale::ShortFormat), SessionHistory::modeName(e.mode),
+                                        formatDuration(e.seconds)),
+                               summary, e.score, rating == Rating::None ? c.textSecondary : Theme::ratingColor(int(rating)),
+                               e.score >= 0 ? QString::number(e.score) : tr("–"));
+        QVBoxLayout *b = x->body();
+        b->addWidget(Ui::divider());
+        if (!e.assessment.isEmpty()) {
+            QLabel *a = Ui::label(e.assessment);
+            a->setWordWrap(true);
+            b->addWidget(a);
+        }
+        if (!e.improvements.isEmpty()) {
+            b->addWidget(sectionLabel(tr("Work on this next")));
+            for (const QString &t : e.improvements)
+                b->addWidget(bulletLine(t, c.accent));
+        }
+        if (e.breakdown.isEmpty()) {
+            for (auto it = e.categories.cbegin(); it != e.categories.cend(); ++it)
+                b->addWidget(bulletLine(QStringLiteral("%1: %2%").arg(it.key()).arg(it.value()), c.textSecondary));
+        } else {
+            b->addWidget(sectionLabel(tr("Breakdown")));
+            for (const ReportCategory &cat : e.breakdown)
+                b->addWidget(categoryExpander(cat));
+        }
+        m_historyLayout->addWidget(x);
+    }
+    if (shown == 0)
+        m_historyLayout->addWidget(Ui::label(tr("Nothing yet. Every session you finish is saved here, on this computer only."), "secondary"));
 }
 
 void PostMeetPage::showReport(const SessionReport &report)
@@ -551,6 +690,14 @@ void PostMeetPage::rebuild()
     assessment->setFont(af);
     assessment->setWordWrap(true);
     heroText->addWidget(assessment);
+    // Progress: compared with the session before this one
+    const HistoryEntry *before = SessionHistory::instance().previous(SessionHistory::idFor(m_report));
+    if (before && before->score >= 0 && ev.overall >= 0) {
+        QLabel *delta = Ui::label(deltaText(ev.overall, before->score));
+        delta->setStyleSheet(QStringLiteral("font-weight: 700; color: %1;")
+                                 .arg(Theme::css(ev.overall >= before->score ? c.success : c.critical)));
+        heroText->addWidget(delta);
+    }
     if (m_reviewPending)
         heroText->addWidget(Ui::label(tr("The AI coach is reviewing your session…"), "secondary"));
     else if (!m_reviewError.isEmpty())
@@ -579,30 +726,10 @@ void PostMeetPage::rebuild()
     // ---- Performance breakdown
     m_reportLayout->addWidget(sectionLabel(tr("Performance breakdown")));
     for (const ReportCategory &cat : ev.categories) {
-        const QColor colour = cat.rating == Rating::None ? c.textSecondary : Theme::ratingColor(int(cat.rating));
-        auto *row = new Expander(cat.name, cat.summary, cat.score, colour,
-                                 cat.score >= 0 ? QStringLiteral("%1%").arg(cat.score) : tr("–"));
-        QVBoxLayout *b = row->body();
-        b->addWidget(Ui::divider());
-        QLabel *measured = Ui::label(cat.measured, "secondary");
-        measured->setWordWrap(true);
-        b->addWidget(measured);
-        if (!cat.details.isEmpty()) {
-            b->addWidget(sectionLabel(tr("What we measured")));
-            for (const QString &d : cat.details)
-                b->addWidget(bulletLine(d, c.textSecondary));
-        }
-        if (!cat.events.isEmpty()) {
-            b->addWidget(sectionLabel(tr("Moments detected")));
-            for (const QString &e : cat.events.mid(0, 8))
-                b->addWidget(bulletLine(e, c.orange));
-        }
-        if (!cat.recommendations.isEmpty()) {
-            b->addWidget(sectionLabel(tr("Recommendations")));
-            for (const QString &r : cat.recommendations)
-                b->addWidget(bulletLine(r, c.accent));
-        }
-        m_reportLayout->addWidget(row);
+        QString change;
+        if (before && before->categories.contains(cat.name))
+            change = deltaText(cat.score, before->categories.value(cat.name));
+        m_reportLayout->addWidget(categoryExpander(cat, change));
     }
 
     if (!m_ai->isConfigured()) {
@@ -614,6 +741,10 @@ void PostMeetPage::rebuild()
 
     m_empty->hide();
     m_reportWidget->show();
+    // Keep the saved copy up to date (e.g. with the AI review once it arrives)
+    if (!m_reviewPending)
+        SessionHistory::instance().add(m_report, ev);
+    rebuildHistory();
 }
 
 QString PostMeetPage::summarizeForAi(const SessionReport &report)

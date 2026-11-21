@@ -2,159 +2,141 @@
 
 **Smart Meeting Interactive Live Education**
 
-SMILE is a desktop companion that coaches you before, during and after high-stakes online meetings such as job interviews, client pitches and board presentations. It watches and listens through your webcam and microphone, then gives private feedback on posture, expression, pacing and speech. Only you see it.
+SMILE is a desktop coach that helps you **correct your body behaviour in online meetings** such as job interviews, client pitches and presentations. It watches and listens through your webcam and microphone, coaches you while you train, checks your setup before a call, gives a few quiet nudges during it, and scores you afterwards. Only you see it.
 
-> SMILE is a **training and learning** tool. It never alters, filters or overlays your outgoing video feed. Other participants see the real you; SMILE helps that version improve.
+> SMILE only reads your camera and microphone. It never alters, filters or overlays your outgoing video, never joins the meeting as a bot, and never records to disk.
 
----
-
-## Who it's for
-
-Industry professionals heading into meetings where how they come across matters as much as what they say: job candidates, consultants, salespeople, executives and presenters.
-
-**What they value:** looking and sounding professional.
+**Download:** Windows (`.zip`), macOS (universal `.dmg`) and Linux (`.AppImage`) builds are attached to every [GitHub release](../../releases).
 
 ---
 
-## How it works: four phases
+## What SMILE focuses on
 
-| Phase | When | What SMILE does |
-|---|---|---|
-| **1. Training** | Days or hours before | You enter the key points you want to make and a target length for each. You rehearse, and SMILE gives live cues plus a full debrief afterwards. |
-| **2. Pre-Meet** | Minutes before joining | A readiness check: framing and lighting, posture, a straight collar and tidy appearance, and whether notes or other clutter are visible on camera. |
-| **3. Meet** | During the call | Quiet, glanceable tips such as *"over time on point 2"*, *"straighten up"*, *"smile"*, *"you've been talking for 3 min, let others speak"*. |
-| **4. Post-Meet** | After the call | A report on what went well, what didn't, and specific steps to improve, with trends across sessions. |
+Live, SMILE only talks about how you come across on camera, in this order of importance:
 
----
+1. **Face covered or out of frame**: a hand over your face, leaning out of the picture.
+2. **Posture and movement**: slouching, a tilted head, fidgeting, distracting hands.
+3. **Eye contact**: looking away from the camera, or reading for too long.
+4. **Filler words**: "um", "uh", "you know".
+5. **Smile and expression**: looking tense or flat for a long time.
 
-## Four pillars
-
-1. **Training / Preparation**: rehearse against your own agenda and timing goals.
-2. **Pre-Meeting Readiness**: catch visual problems before anyone else sees them.
-3. **Real-Time Monitoring**: subtle in-meeting nudges that don't distract you.
-4. **Post-Meeting Analysis**: generate a clear and to-the-point report of things to improve for next time.
+Everything else (timing, key points, pace, wording, lighting, clothing) never pops up during a session. It is measured and waits for your results.
 
 ---
 
-## Core components
+## The app
 
-| Component | Phase(s) | Description |
-|---|---|---|
-| **Posture tracking** | Pre-Meet, Meet, Training | Pose estimation from the webcam: slouching, leaning, head tilt, fidgeting, awkward body language. |
-| **Facial expression / smile** | Meet, Training | Detects smiling, engagement and eye contact (gaze toward the camera). |
-| **Appearance check** | Pre-Meet | Collar and clothing alignment, framing, lighting, visible notes or distractions in the frame. |
-| **Speech analysis** | Training, Post-Meet (some live) | Filler words ("uhm", "like"), speaking pace, long monologues, talk-time share and interruptions. |
-| **Agenda and timing tracker** | Training, Meet | Matches what you're saying to your planned points and warns when a point runs long. |
-| **LLM feedback engine** | Training, Post-Meet | Turns raw metrics and transcripts into readable, actionable coaching. |
-| **Companion UI** | All | A small, Clippy-style desktop companion that sits beside your meeting window and shows tips without getting in the way. |
+| Page | What it's for |
+|---|---|
+| **Home** | Four big buttons (Practise, Check my setup, Start a meeting, My results) plus your progress: level and XP, day streak, last and best score, a score chart, badges and recent sessions. |
+| **Training** | **Rehearse** your whole talk against your plan; practise **one section** at a time; or run a **mock meeting** with SMILE as the other person (presentation, interview, negotiation, business proposal, sales pitch). |
+| **Setup check** | A live camera preview and a one-click AI check of framing, camera angle, lighting, collar, posture and clutter, with red boxes on what to fix. A live sound check tells you if there's background noise. |
+| **Meet** | Start a real meeting. SMILE minimizes; the small animated companion pops up only when something about your body language needs fixing. |
+| **Results** | Your score, the three most important things to work on, a breakdown you can expand into exact measurements and timestamped moments, and the change since last time. Every earlier session is listed below and can be reopened to compare. |
+| **Settings** | AI key, how picky SMILE is (separately for meetings and training), AI intelligence, camera and microphone, mouse haptics, appearance and debug mode. |
 
----
+### Training
 
-## Proposed architecture
+* **Rehearse**: paste your speech or notes. SMILE splits them into sections with key points, you adjust the sections and target times, then rehearse out loud. Training is graded more strictly than real meetings and gives more feedback.
+* **One section**: practise a single section with your notes in view, get a score and try again, compared with your last attempt.
+* **Mock meeting**: a video-call layout with the SMILE avatar next to your own camera. The avatar plays a role, listens, answers within a few seconds of you finishing, and asks follow-up questions. Behaviour feedback appears under your video, and **"SMILE steps in"** (Never / Light / Balanced / Strict) sets how often the avatar itself comments on a covered face, fidgeting or slouching. A banner warns you when it's too noisy around you. Headphones work best.
 
-```
- ┌────────────┐   ┌────────────┐
- │  Webcam    │   │ Microphone │        (read-only: SMILE never writes to the video feed)
- └─────┬──────┘   └─────┬──────┘
-       │                │
- ┌─────▼──────────────────▼──────────────────────────────┐
- │                 C++ real-time core                     │
- │  • Capture (OpenCV)                                    │
- │  • Pose + face landmarks (e.g. MediaPipe / ONNX)       │
- │  • Smile / gaze / posture scoring                      │
- │  • Voice activity + filler-word detection              │
- │  • Session event log (timestamps, metrics)             │
- └─────┬─────────────────────────────────────┬────────────┘
-       │ live cues                            │ session data
- ┌─────▼──────────────┐              ┌────────▼─────────────────────┐
- │  Companion UI      │              │  Python AI layer             │
- │  (Qt / ImGui)      │              │  • Speech-to-text (Whisper)  │
- │  overlay tips      │◄─────────────┤  • Agenda/point matching     │
- └────────────────────┘   summaries  │  • LLM API for feedback      │
-                                     └──────────────────────────────┘
-```
+SMILE follows which section you're on by **meaning**, not exact words, and judges key points leniently on the idea. If you drift off your plan it notes it for the results.
 
-**Language split**
-- **C++**: anything latency-sensitive: capture, vision models, live scoring, the UI.
-- **Python**: transcription, NLP, and LLM API calls for training and post-meet reports.
-- The two communicate over a local IPC channel such as ZeroMQ, gRPC or a local socket.
+### During a meeting
 
-**Privacy by design**
-- All video and audio processing runs locally by default.
-- Only text (transcripts and metric summaries) goes to an LLM API, and only when the user opts in.
-- Recordings are never stored unless the user asks.
+* Default: no more than about one tip every 40 seconds. Move the **"How picky SMILE is"** slider to change it.
+* The most urgent tip always wins: a hidden face jumps ahead of anything else.
+* Right-click the companion to **snooze tips for 10 minutes** or **mute all tips** until you unmute them. Mute is also in the tray menu and on the Meet page. Muted sessions are still scored.
+* The companion is always on top but only shows its face area to the mouse, so it doesn't block clicks on your meeting app. Drag it anywhere.
+* An optional section timer can sit next to it (Meet → Options).
+* With an MX Master 4 and the plugin in [`integrations/logi-haptics`](integrations/logi-haptics), warnings can also pulse the mouse.
 
----
+### Scoring
 
-## Example live tips
+The overall score weighs how you come across most:
 
-- ⏱️ "Point 2 is 90 s over its target. Consider wrapping up."
-- 🧍 "You're slouching. Sit up straight."
-- 🙂 "Try a smile. You've looked tense for a while."
-- 🗣️ "You've spoken for 4 minutes straight. Pause for questions."
-- 👀 "Look at the camera, not the screen."
-- 🔁 "5 'uhms' in the last minute."
+| Category | Weight |
+|---|---|
+| Face & framing (visible, not covered, steady) | 2.0 |
+| Body language (posture, movement, hands) | 2.0 |
+| Facial engagement (warmth; a calm, attentive face counts as good) | 1.5 |
+| Eye contact | 1.5 |
+| Speech delivery (pace, filler words, pauses, volume) | 1.25 |
+| Professional language | 1.0 |
+| Key points | 0.6 |
+| Timing | 0.5 |
+
+A covered face or disturbing movement also caps the overall score, so good timing can't make up for it. Training sessions need a higher score for the same rating.
 
 ---
 
 ## How SMILE watches and listens
 
-SMILE uses **two AIs in tandem**:
-
-| | Local (on your computer) | Cloud (Together AI) |
+| | On your computer | In the cloud (Together AI) |
 |---|---|---|
-| Camera | YuNet face tracker, ~15×/s, ~7 ms per frame: face position, 5 landmarks, head direction (eye contact), mouth shape | Vision model every 3 s **and immediately when the tracker sees a change**: smile, expression, posture, tension, collar, clutter |
-| Voice | Speech detection, talk time, monologues, speaking rate from syllables, twice a second | Whisper on ~10 s clips: exact words, filler words, true words per minute |
+| Camera | YuNet face tracker (~15×/s): position, landmarks, head direction. FER+ expression model (~5×/s): smile and expression. | Vision model every 2 s (adjustable to 1 s) and immediately when the tracker sees a change: posture, hands, covered face, tension. |
+| Voice | Speech detection tuned to ignore background noise, talk time, pauses, speaking rate, noise level. | Whisper: exact words, filler words, words per minute. |
 
-The cloud answers also calibrate the local estimates to your face and voice as you go. Tips fire only when a pattern lasts (for example, no smile for 20 s), each kind has a cooldown, and **Settings → Coaching** offers Relaxed, Balanced and Responsive presets.
-
-**Debug mode** (Settings → Debugging) shows the face landmarks on the camera, live values for everything detected, the cloud AI's raw answers, and a log of every alert and tip with the exact reason it fired.
-
-**Training** turns your speech or notes into sections with headings that fit the kind of talk, plus the key points SMILE then listens for. If you move on without saying one, SMILE tells you, and the report rates how many you got across.
-
----
-
-## Training: practise and simulate
-
-* **Plan & rehearse**: paste your speech or notes (text or bullets), let SMILE structure it into sections with key points, review them in the structuring window, then rehearse the whole talk.
-* **Practise a section**: practise one section at a time with your notes in front of you. You get a score, specific feedback and suggestions, can try again immediately, and see each attempt compared with the last.
-* **Simulate a meeting**: the SMILE avatar joins as another participant (for example a critical investor or a hiring manager). It speaks, listens, asks unexpected questions, challenges your arguments and, on harder levels, interrupts. Choose Beginner, Intermediate or Advanced. Afterwards you get an evaluation of how you handled it.
-
-During a real meeting SMILE stays discreet: the avatar runs as its own small process, so tips never bring the main window in front of Zoom. An optional section timer can sit beside it.
+The cloud results calibrate the local ones as you go. **Debug mode** (Settings) shows the tracking points, live values, raw AI answers and the reason behind every tip.
 
 ---
 
 ## AI coach setup
 
-SMILE's smart features (smile, posture and eye-contact tips, filler-word counting, the Pre-Meet camera check and written feedback) use [Together AI](https://together.ai). Timing, lighting and monologue detection work without it.
-
-The key is **never** built into the app or committed to git. SMILE looks for it in this order:
+SMILE's smart features use [Together AI](https://together.ai). The key is **never** built into the app or committed to git. SMILE looks for it in this order:
 
 1. **Settings → AI coach**: paste it in the app. It's stored only on that computer.
 2. The `TOGETHER_API_KEY` environment variable.
 3. A `.env` file in the working directory or next to the app (copy `.env.example` to `.env`). `.env` is git-ignored.
 
-Models used: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera), `openai/whisper-large-v3` (speech), `openai/gpt-oss-120b` (structuring, simulation and feedback) and `hexgrad/Kokoro-82M` (the avatar's voice). Typical cost is about 25 cents per hour of coaching.
+**AI intelligence** (Settings → Coaching):
 
-**Privacy:** while a session runs, a small snapshot is sent every 3 s or so (adjustable) and speech clips every ~10 s, over HTTPS. Nothing is recorded to disk, and SMILE never changes your video feed. Switch **Analyse with AI** off in Settings to keep everything local.
+| Level | Models | Cost |
+|---|---|---|
+| Standard (default) | `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera), `openai/gpt-oss-120b` (text) | about $0.15–0.25 per hour |
+| Enhanced | `moonshotai/Kimi-K3` | ~5× |
+| Maximum | `moonshotai/Kimi-K3.1-Pro` | ~15× |
 
----
-
-## Roadmap (draft)
-
-- [ ] **MVP**: webcam posture and smile detection with a basic companion overlay
-- [ ] Pre-Meet readiness checklist (framing, lighting, collar, visible notes)
-- [ ] Speech pipeline: filler words, pace, talk-time
-- [ ] Training mode: agenda input, per-point timing, post-rehearsal LLM report
-- [ ] Live Meet mode with low-distraction tips
-- [ ] Post-Meet report and progress history
-- [ ] Settings: tip sensitivity, quiet mode, per-meeting profiles
+Speech always uses `openai/whisper-large-v3`, the mock meeting's conversation always uses the fast `gpt-oss-120b`, the avatar speaks with `hexgrad/Kokoro-82M`, and the setup check always uses the quick vision model so it answers in a second or two.
 
 ---
 
-## Status
+## Privacy
 
-🚧 Concept / early design. No code yet.
+* Video and audio are processed on your computer. While a session runs, a small snapshot every couple of seconds and short speech clips are sent to Together AI over HTTPS for analysis. Nothing is stored in the cloud. Switch **Analyse with AI** off in Settings to keep everything local.
+* Nothing is recorded to disk. Session results (scores and the written report, no video or audio) are saved on your computer only, and **Results → Delete history** removes them.
+* There are no accounts.
+
+---
+
+## Building from source
+
+Requirements: CMake 3.21+, a C++17 compiler, Qt 6.8+ (Widgets, Multimedia, Network) and Python 3.
+
+```bash
+python3 scripts/fetch_onnxruntime.py
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/SMILE
+```
+
+ONNX Runtime is loaded at run time, so SMILE still starts without it (without on-device tracking). The FER+ expression model is downloaded and checked by CMake at configure time. GitHub Actions builds and publishes all three platforms when a `vX.Y.Z` tag is pushed.
+
+Handy environment variables: `SMILE_THEME=light|dark`, `SMILE_COMPANION_INPROCESS=1` (run the companion inside the main process), `SMILE_MUTE_AUDIO=1` (silent avatar, for demos and tests).
+
+### Layout
+
+```
+src/app         main window, pages (Home, Training, Setup check, Meet, Results, Settings), session history
+src/companion   the floating companion (separate process) and its avatar
+src/core        session controller, settings, tips, reports
+src/sensors     camera and microphone
+src/vision      on-device face tracking and expression model
+src/ai          Together AI client, vision and speech coaching, mock meeting, key-point judge
+src/ui          theme and widgets
+integrations    Logi Options+ plugin for mouse haptics
+```
 
 ---
 

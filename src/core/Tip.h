@@ -35,4 +35,10 @@ struct Tip {
 };
 
 QString categoryName(TipCategory category);
+
+// SMILE corrects body behaviour live; everything else (timing, topic, pace,
+// lighting, wording…) waits for the results. Returns how urgent a tip is when
+// shown live (0 = most urgent), or -1 if it must not pop up during a session.
+// Order: face covered/out of frame, posture and movement, gaze, filler words, smile.
+int livePriority(const Tip &tip);
 const QList<TipCategory> &allTipCategories();

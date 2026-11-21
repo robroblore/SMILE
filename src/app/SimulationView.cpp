@@ -16,6 +16,7 @@
 #include <QVBoxLayout>
 
 #include "ai/AiClient.h"
+#include "app/SessionHistory.h"
 #include "app/pages/PostMeetPage.h"
 #include "companion/AvatarWidget.h"
 #include "core/AppSettings.h"
@@ -216,14 +217,14 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     left->setSpacing(10);
     auto *tiles = new QHBoxLayout;
     tiles->setSpacing(10);
-    m_avatar->setMinimumSize(280, 240);
+    m_avatar->setMinimumSize(200, 150);
     QFrame *avatarTile = tile(m_avatar, m_roleLabel);
     m_self->setOverlay(false);
-    m_self->setMinimumSize(280, 240);
+    m_self->setMinimumSize(200, 150);
     QFrame *selfTile = tile(m_self, Ui::label(tr("You")));
     tiles->addWidget(avatarTile, 1);
     tiles->addWidget(selfTile, 1);
-    left->addLayout(tiles, 1);
+    left->addLayout(tiles);
 
     m_feedback->setWordWrap(true);
     m_feedback->setMinimumHeight(42);
@@ -254,6 +255,7 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
                                  .arg(Theme::css(c.critical), Theme::css(c.critical.darker(110))));
     controls->addWidget(endButton);
     left->addLayout(controls);
+    left->addStretch();
     live->addLayout(left, 3);
 
     auto *conversation = new Card(tr("Chat"));
@@ -271,7 +273,7 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     m_chatScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_chatScroll->setMinimumHeight(300);
     conversation->body()->addWidget(m_chatScroll, 1);
-    m_typed->setPlaceholderText(tr("Or type, then Enter"));
+    m_typed->setPlaceholderText(tr("Type here…"));
     conversation->body()->addWidget(m_typed);
     live->addWidget(conversation, 2);
 
@@ -343,9 +345,26 @@ void SimulationView::applyTypeDefaults(const QString &type)
     }
 }
 
+void SimulationView::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    QTimer::singleShot(0, this, &SimulationView::fitTiles);
+}
+
+void SimulationView::fitTiles()
+{
+    // Video tiles keep a 4:3 shape like a real call, whatever the window size
+    const int h = qBound(150, m_self->width() * 3 / 4, 420);
+    if (m_self->height() != h) {
+        m_self->setFixedHeight(h);
+        m_avatar->setFixedHeight(h);
+    }
+}
+
 void SimulationView::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
+    QTimer::singleShot(0, this, &SimulationView::fitTiles);
     if (m_objectives->toPlainText().trimmed().isEmpty()) {
         const Agenda agenda = m_controller->agenda();
         if (!agenda.isEmpty() && !agenda.last().summary.isEmpty())
@@ -397,6 +416,7 @@ void SimulationView::start()
     m_noise->hide();
     m_self->setMessage(AppSettings::instance().useCamera() ? tr("Starting camera…") : tr("Camera off"));
     m_stack->setCurrentIndex(1);
+    QTimer::singleShot(0, this, &SimulationView::fitTiles);
     m_clockTimer.start();
     m_engine->start(config);
 }
@@ -457,6 +477,13 @@ void SimulationView::showResults(const QJsonObject &e, const SessionReport &repo
     QLabel *summary = Ui::label(ev.assessment);
     summary->setWordWrap(true);
     text->addWidget(summary);
+    if (const HistoryEntry *before = SessionHistory::instance().previous(SessionHistory::idFor(report));
+        before && before->score >= 0 && ev.overall >= 0) {
+        const int d = ev.overall - before->score;
+        QLabel *delta = Ui::label(d > 0 ? tr("▲ %1 since last time").arg(d) : d < 0 ? tr("▼ %1 since last time").arg(-d) : tr("Same as last time"));
+        delta->setStyleSheet(QStringLiteral("font-weight: 700; color: %1;").arg(Theme::css(d >= 0 ? c.success : c.critical)));
+        text->addWidget(delta);
+    }
     text->addWidget(Ui::label(tr("%1 exchanges · SMILE stepped in %2×")
                                   .arg(e.value(QLatin1String("turns")).toInt())
                                   .arg(e.value(QLatin1String("interventions")).toInt()),
@@ -512,4 +539,6 @@ void SimulationView::showResults(const QJsonObject &e, const SessionReport &repo
     connect(again, &QPushButton::clicked, this, [this] { m_stack->setCurrentIndex(0); });
     m_results->addWidget(again, 0, Qt::AlignLeft);
     m_stack->setCurrentIndex(2);
+    // Save it with the AI's summary, so it can be reopened from Results
+    SessionHistory::instance().add(report, ev);
 }

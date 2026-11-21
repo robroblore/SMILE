@@ -1,5 +1,9 @@
 #include "app/pages/PreMeetPage.h"
 
+#include "sensors/MicrophoneMonitor.h"
+
+#include <QDateTime>
+
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -19,13 +23,16 @@
 
 namespace {
 // Checklist rows the camera check can verify, in order
-enum Item { EyeLevel, Lighting, Collar, Distractions, Upright, Notifications, Agenda };
+enum Item { EyeLevel, Lighting, Collar, Distractions, Upright, Quiet, Notifications, Agenda };
 } // namespace
 
-PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
+PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, MicrophoneMonitor *mic, QWidget *parent)
     : QWidget(parent)
     , m_camera(camera)
     , m_ai(ai)
+    , m_mic(mic)
+    , m_meter(new LevelMeter)
+    , m_sound(Ui::label(QString()))
     , m_preview(new CameraPreview)
     , m_checkButton(new QPushButton(tr("Check my setup")))
     , m_status(Ui::label(QString(), "secondary"))
@@ -65,6 +72,20 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     privacy->setWordWrap(true);
     cameraCard->body()->addWidget(privacy);
 
+    // ---- Sound: microphone level and background noise, measured live
+    auto *soundCard = new Card(tr("Sound"));
+    auto *soundRow = new QHBoxLayout;
+    QLabel *micIcon = Ui::label(QString());
+    micIcon->setPixmap(Icons::icon(Icons::Icon::Mic, c.textSecondary, 16).pixmap(16, 16));
+    soundRow->addWidget(micIcon);
+    m_meter->setFixedWidth(200);
+    soundRow->addWidget(m_meter);
+    soundRow->addSpacing(14);
+    m_sound->setWordWrap(true);
+    m_sound->setTextFormat(Qt::RichText);
+    soundRow->addWidget(m_sound, 1);
+    soundCard->body()->addLayout(soundRow);
+
     // ---- Collapsible: checklist
     struct Entry {
         QString title;
@@ -76,6 +97,7 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
         {tr("Collar and clothes straight"), tr("Check the preview above.")},
         {tr("Nothing distracting in view"), tr("Notes, clutter and screens out of the frame.")},
         {tr("Sitting upright"), tr("Feet flat, shoulders relaxed, back against the chair.")},
+        {tr("Quiet background"), tr("Checked by the microphone, or use headphones.")},
         {tr("Notifications muted"), tr("Phone silent, chat and email notifications off.")},
         {tr("Agenda ready"), tr("Your sections are set on the Training page.")},
     };
@@ -106,6 +128,7 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     layout->setSpacing(12);
     layout->addWidget(Ui::pageHeader(tr("Setup check"), tr("Look and sound your best in one minute.")));
     layout->addWidget(cameraCard);
+    layout->addWidget(soundCard);
     layout->addWidget(checklist);
     layout->addWidget(options);
     layout->addWidget(go, 0, Qt::AlignRight);
@@ -141,6 +164,13 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     });
     techTimer->start();
 
+    connect(m_mic, &MicrophoneMonitor::levelChanged, m_meter, &LevelMeter::setLevel);
+    connect(m_mic, &MicrophoneMonitor::speakingChanged, m_meter, &LevelMeter::setSpeaking);
+    auto *soundTimer = new QTimer(this);
+    soundTimer->setInterval(500);
+    connect(soundTimer, &QTimer::timeout, this, &PreMeetPage::updateSound);
+    soundTimer->start();
+
     updateProgress();
     updateCameraState();
 }
@@ -153,11 +183,12 @@ QString PreMeetPage::checkPrompt()
         "{\n"
         "  \"face_visible\": true|false,\n"
         "  \"eye_level\": true|false,          // camera roughly level with the eyes, face reasonably centred\n"
+        "  \"camera_angle\": \"level\"|\"from_below\"|\"from_above\"|\"from_side\",\n"
         "  \"lighting_good\": true|false,      // face clearly lit, not backlit or too dark\n"
         "  \"collar_straight\": true|false,    // collar and clothing look tidy (true if not visible)\n"
         "  \"nothing_distracting\": true|false,// no notes, papers, clutter or distracting objects in view\n"
         "  \"upright\": true|false,            // sitting upright, not slouching\n"
-        "  \"issues\": [{\"kind\": \"framing|lighting|collar|clutter|posture|background\",\n"
+        "  \"issues\": [{\"kind\": \"framing|angle|lighting|collar|clutter|posture|background\",\n"
         "              \"box\": [x1, y1, x2, y2],   // 0..1 image coordinates of the area concerned\n"
         "              \"message\": \"what to change, short and specific\"}],\n"
         "  \"good\": [\"up to 3 short things that already look good\"],\n"
@@ -173,6 +204,12 @@ void PreMeetPage::showEvent(QShowEvent *event)
         m_preview->setMessage(tr("Starting camera…"));
         m_camera->acquire();
     }
+    if (!m_micAcquired && AppSettings::instance().useMicrophone()) {
+        m_micAcquired = true;
+        m_mic->acquire();
+        m_listeningSince = QDateTime::currentMSecsSinceEpoch();
+    }
+    updateSound();
 }
 
 void PreMeetPage::hideEvent(QHideEvent *event)
@@ -181,6 +218,46 @@ void PreMeetPage::hideEvent(QHideEvent *event)
     if (m_acquired) {
         m_acquired = false;
         m_camera->release();
+    }
+    if (m_micAcquired) {
+        m_micAcquired = false;
+        m_mic->release();
+    }
+}
+
+void PreMeetPage::updateSound()
+{
+    if (!isVisible())
+        return;
+    const Theme::Colors &c = Theme::colors();
+    auto say = [this](const QColor &tone, const QString &mark, const QString &text) {
+        m_sound->setText(QStringLiteral("<span style='color:%1; font-weight:700'>%2</span>&nbsp; %3")
+                             .arg(Theme::css(tone), mark, text.toHtmlEscaped()));
+    };
+    if (!AppSettings::instance().useMicrophone()) {
+        say(c.textSecondary, QStringLiteral("–"), tr("The microphone is turned off in Settings."));
+        return;
+    }
+    if (!m_mic->isActive()) {
+        say(c.critical, QStringLiteral("✕"), m_mic->errorString().isEmpty() ? tr("No microphone found.") : m_mic->errorString());
+        return;
+    }
+    if (QDateTime::currentMSecsSinceEpoch() - m_listeningSince < 2500) {
+        say(c.textSecondary, QStringLiteral("…"), tr("Listening to your room…"));
+        return;
+    }
+    // The noise floor is the level between words: what the others hear behind you
+    const double floor = m_mic->noiseFloorDb();
+    if (m_mic->isNoisy() || floor > -40) {
+        say(c.critical, QStringLiteral("!"), tr("Noisy background. Use headphones or move somewhere quieter."));
+        m_items[Quiet]->setChecked(false);
+    } else if (floor > -50) {
+        say(c.orange, QStringLiteral("!"), tr("A little background noise. Fine, but headphones help."));
+        m_items[Quiet]->setChecked(true);
+    } else {
+        say(c.success, QStringLiteral("✓"), m_mic->speechMs() > 0 ? tr("Quiet room, and your voice comes through.")
+                                                                  : tr("Quiet room. Say something to test your mic."));
+        m_items[Quiet]->setChecked(true);
     }
 }
 
@@ -244,6 +321,7 @@ void PreMeetPage::runCheck()
     m_status->setText(tr("Analysing a snapshot…"));
     m_preview->setMarked({});
 
+    // Always the quick model: this check should take a second or two, whatever the intelligence setting
     m_ai->analyzeImage(frame, checkPrompt(), [this](const QJsonObject &r, const QString &error) {
         m_checkButton->setEnabled(true);
         m_checkButton->setText(tr("Check again"));
@@ -289,8 +367,15 @@ void PreMeetPage::runCheck()
         QString advice = r.value(QLatin1String("advice")).toString();
         if (issues.isEmpty())
             advice = tr("Everything the camera can see looks good. %1").arg(advice);
+        const QString angle = r.value(QLatin1String("camera_angle")).toString();
+        if (angle == QLatin1String("from_below"))
+            issues.prepend(tr("Your camera looks up at you: raise it to eye level (a stack of books works)."));
+        else if (angle == QLatin1String("from_above"))
+            issues.prepend(tr("Your camera looks down at you: lower it to eye level."));
+        else if (angle == QLatin1String("from_side"))
+            issues.prepend(tr("Your camera is off to the side: put it straight in front of you."));
         showIssues(issues, good, advice);
-    });
+    }, true);
 }
 
 void PreMeetPage::updateProgress()

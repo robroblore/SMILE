@@ -23,13 +23,13 @@ QString describe(TipCategory category)
     case TipCategory::Timing:
         return MeetPage::tr("A section runs over.");
     case TipCategory::Posture:
-        return MeetPage::tr("Posture, fidgeting, covered face.");
+        return MeetPage::tr("Posture, fidgeting, hands.");
     case TipCategory::Expression:
-        return MeetPage::tr("Expression and eye contact.");
+        return MeetPage::tr("Smile and eye contact.");
     case TipCategory::Speech:
-        return MeetPage::tr("Fillers, pace, volume.");
+        return MeetPage::tr("Filler words (um, uh).");
     case TipCategory::Appearance:
-        return MeetPage::tr("Collar, framing, light.");
+        return MeetPage::tr("Face covered or out of frame.");
     case TipCategory::Content:
         return MeetPage::tr("A key point was skipped.");
     case TipCategory::Language:
@@ -38,6 +38,22 @@ QString describe(TipCategory category)
         break;
     }
     return QString();
+}
+QString liveName(TipCategory category)
+{
+    switch (category) {
+    case TipCategory::Appearance:
+        return MeetPage::tr("Face & framing");
+    case TipCategory::Posture:
+        return MeetPage::tr("Body language");
+    case TipCategory::Expression:
+        return MeetPage::tr("Smile & eye contact");
+    case TipCategory::Speech:
+        return MeetPage::tr("Filler words");
+    default:
+        break;
+    }
+    return categoryName(category);
 }
 } // namespace
 
@@ -88,6 +104,14 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
         const QSignalBlocker block(timer);
         timer->setChecked(AppSettings::instance().sectionTimer());
     });
+    auto *mute = new ToggleSwitch;
+    mute->setChecked(settings.tipsMuted());
+    connect(mute, &QAbstractButton::toggled, &settings, &AppSettings::setTipsMuted);
+    connect(&settings, &AppSettings::changed, mute, [mute] {
+        const QSignalBlocker block(mute);
+        mute->setChecked(AppSettings::instance().tipsMuted());
+    });
+    optionsCard->body()->addWidget(new OptionRow(tr("Mute all tips"), tr("Nothing pops up; everything still goes into your results."), mute));
     optionsCard->body()->addWidget(new OptionRow(tr("Section timer next to SMILE"), tr("Current section and time left."), timer));
     auto *level = new QSlider(Qt::Horizontal);
     level->setRange(1, 5);
@@ -104,14 +128,13 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
     // Tips: which kinds the companion may show (collapsed, most people never change it)
     auto *tipsCard = new Expander(tr("Tip types"), tr("Choose what SMILE may tell you."), -1, Theme::colors().accent, QString());
     tipsCard->body()->setSpacing(0);
-    for (TipCategory category : allTipCategories()) {
-        if (category == TipCategory::General)
-            continue;
+    // Only body behaviour pops up live; timing, topic and wording are in the results
+    for (TipCategory category : {TipCategory::Appearance, TipCategory::Posture, TipCategory::Expression, TipCategory::Speech}) {
         auto *toggle = new ToggleSwitch;
         toggle->setChecked(m_controller->isCategoryShownLive(category));
         connect(toggle, &QAbstractButton::toggled, this,
                 [this, category](bool on) { m_controller->setCategoryShownLive(category, on); });
-        tipsCard->body()->addWidget(new OptionRow(categoryName(category), describe(category), toggle));
+        tipsCard->body()->addWidget(new OptionRow(liveName(category), describe(category), toggle));
     }
     auto *demo = new ToggleSwitch;
     demo->setChecked(demoSource->isEnabled());

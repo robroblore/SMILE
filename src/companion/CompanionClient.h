@@ -42,6 +42,7 @@ signals:
     void nextPointRequested();
     void endSessionRequested();
     void debugViewRequested();
+    void muteRequested(bool muted);
     void liveTipPresented(const Tip &tip);
     void liveTipClosed();
 

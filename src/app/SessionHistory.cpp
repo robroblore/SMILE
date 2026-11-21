@@ -10,10 +10,25 @@
 #include <QStandardPaths>
 #include <QtMath>
 
-#include "app/pages/PostMeetPage.h"
 
 namespace {
 int modeToInt(SessionMode m) { return int(m); }
+
+QJsonArray toArray(const QStringList &list)
+{
+    QJsonArray a;
+    for (const QString &s : list)
+        a.append(s);
+    return a;
+}
+
+QStringList fromArray(const QJsonValue &v)
+{
+    QStringList list;
+    for (const QJsonValue &x : v.toArray())
+        list << x.toString();
+    return list;
+}
 SessionMode intToMode(int v)
 {
     return v >= 0 && v <= int(SessionMode::Simulation) ? SessionMode(v) : SessionMode::Training;
@@ -42,6 +57,22 @@ SessionHistory::SessionHistory()
         const QJsonObject cats = o.value(QLatin1String("categories")).toObject();
         for (auto it = cats.begin(); it != cats.end(); ++it)
             e.categories.insert(it.key(), it.value().toInt());
+        e.id = o.value(QLatin1String("id")).toString(e.at.toString(Qt::ISODate));
+        e.assessment = o.value(QLatin1String("assessment")).toString();
+        e.improvements = fromArray(o.value(QLatin1String("improvements")));
+        for (const QJsonValue &cv : o.value(QLatin1String("breakdown")).toArray()) {
+            const QJsonObject co = cv.toObject();
+            ReportCategory c;
+            c.name = co.value(QLatin1String("name")).toString();
+            c.measured = co.value(QLatin1String("measured")).toString();
+            c.score = co.value(QLatin1String("score")).toInt(-1);
+            c.rating = Rating(co.value(QLatin1String("rating")).toInt());
+            c.summary = co.value(QLatin1String("summary")).toString();
+            c.details = fromArray(co.value(QLatin1String("details")));
+            c.events = fromArray(co.value(QLatin1String("events")));
+            c.recommendations = fromArray(co.value(QLatin1String("recommendations")));
+            e.breakdown << c;
+        }
         if (e.at.isValid())
             m_entries << e;
     }
@@ -61,7 +92,21 @@ void SessionHistory::save() const
         QJsonObject cats;
         for (auto it = e.categories.cbegin(); it != e.categories.cend(); ++it)
             cats.insert(it.key(), it.value());
-        list.append(QJsonObject{{QStringLiteral("at"), e.at.toString(Qt::ISODate)},
+        QJsonArray breakdown;
+        for (const ReportCategory &c : e.breakdown)
+            breakdown.append(QJsonObject{{QStringLiteral("name"), c.name},
+                                         {QStringLiteral("measured"), c.measured},
+                                         {QStringLiteral("score"), c.score},
+                                         {QStringLiteral("rating"), int(c.rating)},
+                                         {QStringLiteral("summary"), c.summary},
+                                         {QStringLiteral("details"), toArray(c.details)},
+                                         {QStringLiteral("events"), toArray(c.events)},
+                                         {QStringLiteral("recommendations"), toArray(c.recommendations)}});
+        list.append(QJsonObject{{QStringLiteral("id"), e.id},
+                                {QStringLiteral("assessment"), e.assessment},
+                                {QStringLiteral("improvements"), toArray(e.improvements)},
+                                {QStringLiteral("breakdown"), breakdown},
+                                {QStringLiteral("at"), e.at.toString(Qt::ISODate)},
                                 {QStringLiteral("mode"), modeToInt(e.mode)},
                                 {QStringLiteral("seconds"), e.seconds},
                                 {QStringLiteral("score"), e.score},
@@ -80,7 +125,8 @@ void SessionHistory::add(const SessionReport &report, const Evaluation &evaluati
     if (report.totalSeconds < 20)
         return; // a quick test, not a session
     HistoryEntry e;
-    e.at = QDateTime::currentDateTime();
+    e.id = idFor(report);
+    e.at = report.startedAt.isValid() ? report.startedAt : QDateTime::currentDateTime();
     e.mode = report.mode;
     e.seconds = report.totalSeconds;
     e.score = evaluation.overall;
@@ -88,11 +134,44 @@ void SessionHistory::add(const SessionReport &report, const Evaluation &evaluati
     for (const ReportCategory &c : evaluation.categories)
         if (c.score >= 0)
             e.categories.insert(c.name, c.score);
+    e.assessment = evaluation.assessment;
+    e.improvements = evaluation.improvements;
+    e.breakdown = evaluation.categories;
+    for (HistoryEntry &existing : m_entries) {
+        if (existing.id == e.id) {
+            existing = e;
+            save();
+            emit changed();
+            return;
+        }
+    }
     m_entries << e;
     while (m_entries.size() > 500)
         m_entries.removeFirst();
     save();
     emit changed();
+}
+
+void SessionHistory::clear()
+{
+    m_entries.clear();
+    QFile::remove(path());
+    emit changed();
+}
+
+QString SessionHistory::idFor(const SessionReport &report)
+{
+    return report.startedAt.toString(Qt::ISODateWithMs);
+}
+
+const HistoryEntry *SessionHistory::previous(const QString &id) const
+{
+    for (int i = int(m_entries.size()) - 1; i >= 0; --i) {
+        if (m_entries[i].id != id)
+            continue;
+        return i > 0 ? &m_entries[i - 1] : nullptr;
+    }
+    return id.isEmpty() && !m_entries.isEmpty() ? &m_entries.last() : nullptr;
 }
 
 int SessionHistory::streakDays() const

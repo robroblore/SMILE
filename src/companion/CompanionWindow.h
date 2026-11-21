@@ -53,6 +53,7 @@ signals:
     void nextPointRequested();
     void endSessionRequested();
     void debugViewRequested();
+    void muteRequested(bool muted);
 
 protected:
     void paintEvent(QPaintEvent *event) override;

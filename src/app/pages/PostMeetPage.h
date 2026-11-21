@@ -51,6 +51,7 @@ public slots:
 
 private:
     void rebuild();
+    void rebuildHistory();
     void requestReview();
     void requestCoverageJudgement();
 
@@ -63,5 +64,6 @@ private:
     QWidget *m_empty;
     QWidget *m_reportWidget;
     QVBoxLayout *m_reportLayout;
+    QVBoxLayout *m_historyLayout;
     int m_reportId = 0;
 };

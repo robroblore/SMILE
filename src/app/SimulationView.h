@@ -34,6 +34,7 @@ public:
 
 protected:
     void showEvent(QShowEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     void start();
@@ -41,6 +42,7 @@ private:
     void showFeedback(const Tip &tip);
     void showResults(const QJsonObject &evaluation, const SessionReport &report);
     void applyTypeDefaults(const QString &type);
+    void fitTiles();
     QWidget *segmented(const QStringList &labels, int checked, std::function<void(int)> onPick, QList<class QPushButton *> *out);
 
     SessionController *m_controller;

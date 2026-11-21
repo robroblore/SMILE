@@ -393,6 +393,7 @@ void SessionController::raiseTip(const Tip &tip)
 
     m_log.append(tip);
     emit tipLogged(tip);
-    if (isCategoryShownLive(tip.category))
+    // Only body-behaviour tips pop up; the rest is kept for the results
+    if (livePriority(tip) >= 0 && isCategoryShownLive(tip.category))
         emit tipRaised(tip);
 }

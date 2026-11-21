@@ -258,7 +258,9 @@ void SimulationEngine::say(const QString &text, const QString &mood, const QStri
 
 void SimulationEngine::onBehaviourTip(const Tip &tip)
 {
-    emit liveTip(tip); // always shown on screen during training
+    if (livePriority(tip) < 0)
+        return; // timing, topic, pace… go to the results, not on screen
+    emit liveTip(tip);
 
     const int level = AppSettings::instance().avatarIntervention();
     if (level == 0 || m_ending)
@@ -269,8 +271,7 @@ void SimulationEngine::onBehaviourTip(const Tip &tip)
         {QStringLiteral("hands"), 2},       {QStringLiteral("hands-inappropriate"), 2},
         {QStringLiteral("posture"), 2},     {QStringLiteral("uncomfortable"), 2}, {QStringLiteral("touching"), 2},
         {QStringLiteral("cold"), 3},        {QStringLiteral("flat"), 3},     {QStringLiteral("eyes"), 3},
-        {QStringLiteral("notes"), 3},       {QStringLiteral("fillers"), 3},  {QStringLiteral("pace"), 3},
-        {QStringLiteral("quiet"), 3},       {QStringLiteral("monologue"), 3},
+        {QStringLiteral("notes"), 3},       {QStringLiteral("fillers"), 3},
     };
     static const QHash<QString, QStringList> lines = {
         {QStringLiteral("covered"), {tr("Sorry, I can't see your face, something's in the way."), tr("Your hand is covering your face; I can't see you.")}},

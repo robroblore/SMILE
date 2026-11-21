@@ -28,7 +28,9 @@ public:
     void chat(const QString &system, const QString &user, int maxTokens, TextCallback done);
 
     // Ask the vision model about an image; the reply is parsed as JSON.
-    void analyzeImage(const QImage &image, const QString &prompt, JsonCallback done);
+    // fast: always the quick standard model with a short timeout (setup check),
+    // whatever the intelligence setting
+    void analyzeImage(const QImage &image, const QString &prompt, JsonCallback done, bool fast = false);
 
     // Transcribe a WAV file (16 kHz mono).
     void transcribe(const QByteArray &wav, TextCallback done);

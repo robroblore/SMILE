@@ -33,10 +33,11 @@ constexpr int kStaleTipMs = 30000; // drop a waiting tip after this long
 constexpr qreal kBubbleStartProgress = 0.3;
 const char *kPosKey = "companion/anchor"; // bottom-right corner, so resizing keeps it in place
 
-bool isOvertimeWarning(const Tip &tip)
+// Lower is more urgent; unknown tips (previews) sort last
+int rank(const Tip &tip)
 {
-    return tip.category == TipCategory::Timing && tip.severity == TipSeverity::Warning
-        && tip.source == QLatin1String("timer");
+    const int p = livePriority(tip);
+    return p < 0 ? 99 : p;
 }
 
 QColor accentFor(const Tip &tip)
@@ -142,17 +143,18 @@ CompanionWindow::CompanionWindow(QWidget *parent)
 
 void CompanionWindow::showTip(const Tip &tip)
 {
-    if (m_snoozedUntil.isForever() || !m_snoozedUntil.hasExpired())
+    if (m_snoozedUntil.isForever() || !m_snoozedUntil.hasExpired() || AppSettings::instance().tipsMuted())
         return;
 
     const bool tooSoon = m_sinceHidden.isValid() && m_sinceHidden.elapsed() < m_gapMs;
     if (m_state != State::Hidden || tooSoon) {
-        if (isOvertimeWarning(tip) && m_pending && m_pendingAge.elapsed() < kStaleTipMs
-            && m_pending->category == TipCategory::Appearance)
+        // Keep the most important waiting tip (face covered > posture > gaze > fillers > smile)
+        if (m_pending && m_pendingAge.elapsed() < kStaleTipMs && rank(*m_pending) < rank(tip))
             return;
         m_pending = tip;
         m_pendingAge.restart();
-        if (tip.category == TipCategory::Appearance && m_current && isOvertimeWarning(*m_current))
+        // A hidden face can't wait behind a smaller tip
+        if (rank(tip) <= 1 && m_current && rank(*m_current) > 1 && m_state != State::Leaving)
             startLeaving();
         else if (m_state == State::Hidden)
             m_pendingTimer.start(int(m_gapMs - m_sinceHidden.elapsed()));
@@ -363,8 +365,7 @@ void CompanionWindow::onAppearFinished()
         if (!m_hover)
             m_hold.start();
     } else if (m_state == State::Leaving) {
-        const bool appearanceTakesPriority = m_current && isOvertimeWarning(*m_current)
-            && m_pending && m_pending->category == TipCategory::Appearance;
+        const bool urgentNext = m_pending && rank(*m_pending) <= 1 && m_current && rank(*m_current) > 1;
         m_state = State::Hidden;
         m_current.reset();
         updateMask();
@@ -377,7 +378,7 @@ void CompanionWindow::onAppearFinished()
         }
         m_sinceHidden.restart();
         if (m_pending)
-            m_pendingTimer.start(appearanceTakesPriority ? 0 : m_gapMs);
+            m_pendingTimer.start(urgentNext ? 0 : m_gapMs);
     }
 }
 
@@ -690,10 +691,25 @@ void CompanionWindow::contextMenuEvent(QContextMenuEvent *event)
     m_hold.stop();
     QMenu menu(this);
     menu.addAction(tr("Dismiss"), this, &CompanionWindow::dismiss)->setEnabled(m_current.has_value());
-    menu.addAction(tr("Snooze tips for 10 minutes"), this, [this] {
-        m_snoozedUntil = QDeadlineTimer(10 * 60 * 1000);
-        m_pending.reset();
-        dismiss();
+    const bool snoozed = !m_snoozedUntil.isForever() && !m_snoozedUntil.hasExpired();
+    if (snoozed) {
+        menu.addAction(tr("Resume tips now"), this, [this] { m_snoozedUntil = QDeadlineTimer(0); });
+    } else {
+        menu.addAction(tr("Snooze tips for 10 minutes"), this, [this] {
+            m_snoozedUntil = QDeadlineTimer(10 * 60 * 1000);
+            m_pending.reset();
+            dismiss();
+        });
+    }
+    QAction *mute = menu.addAction(tr("Mute all tips"));
+    mute->setCheckable(true);
+    mute->setChecked(AppSettings::instance().tipsMuted());
+    connect(mute, &QAction::toggled, this, [this](bool on) {
+        if (on) {
+            m_pending.reset();
+            dismiss();
+        }
+        emit muteRequested(on); // saved by the main app, so it stays muted until you unmute
     });
     menu.addSeparator();
     QAction *next = menu.addAction(tr("Next point"), this, &CompanionWindow::nextPointRequested);

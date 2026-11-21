@@ -22,6 +22,7 @@ public:
     QString apiBaseUrl() const;
     QString visionModel() const;
     QString chatModel() const;
+    static QString fastVisionModel() { return QStringLiteral("nvidia/NVIDIA-Nemotron-3.5-Super-VL"); }
     QString transcribeModel() const;
 
     bool useCamera() const;
@@ -76,6 +77,9 @@ public:
     static Thresholds thresholdsFor(int level);
 
     bool debugMode() const;
+    // Live tips muted until the user unmutes them (companion menu, tray, Meet page)
+    bool tipsMuted() const;
+    void setTipsMuted(bool muted);
     void setDebugMode(bool on);
 
     // Small timer next to the floating avatar (off by default)

@@ -8,6 +8,7 @@
 #include <QCloseEvent>
 #include <QHBoxLayout>
 #include <QJsonObject>
+#include <QSignalBlocker>
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
@@ -68,7 +69,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *home = new HomePage;
     auto *training = new TrainingPage(m_controller, m_ai, m_mic, m_camera);
-    auto *preMeet = new PreMeetPage(m_camera, m_ai);
+    auto *preMeet = new PreMeetPage(m_camera, m_ai, m_mic);
     auto *meet = new MeetPage(m_controller, demo);
     auto *postMeet = new PostMeetPage(m_ai);
     m_pages->addWidget(home);
@@ -106,6 +107,8 @@ MainWindow::MainWindow(QWidget *parent)
     // Session -> companion. Praise is kept for the report during a meeting so
     // the companion only interrupts when something needs fixing.
     connect(m_controller, &SessionController::tipRaised, this, [this](const Tip &tip) {
+        if (AppSettings::instance().tipsMuted())
+            return; // muted: everything still goes into the results
         if (m_controller->mode() == SessionMode::Meeting && tip.severity == TipSeverity::Positive)
             return;
         if (m_controller->mode() == SessionMode::Simulation)
@@ -171,6 +174,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_companion, &CompanionClient::nextPointRequested, m_controller, &SessionController::nextPoint);
     connect(m_companion, &CompanionClient::endSessionRequested, m_controller, &SessionController::stop);
     connect(m_companion, &CompanionClient::debugViewRequested, this, &MainWindow::showDebug);
+    connect(m_companion, &CompanionClient::muteRequested, &AppSettings::instance(), &AppSettings::setTipsMuted);
 
     showPage(HomePageIndex);
 }
@@ -348,6 +352,14 @@ void MainWindow::buildTray()
     menu->addSeparator();
     QAction *next = menu->addAction(tr("Next point"), m_controller, &SessionController::nextPoint);
     QAction *end = menu->addAction(tr("End session"), m_controller, &SessionController::stop);
+    QAction *mute = menu->addAction(tr("Mute all tips"));
+    mute->setCheckable(true);
+    mute->setChecked(AppSettings::instance().tipsMuted());
+    connect(mute, &QAction::toggled, &AppSettings::instance(), &AppSettings::setTipsMuted);
+    connect(&AppSettings::instance(), &AppSettings::changed, mute, [mute] {
+        const QSignalBlocker block(mute);
+        mute->setChecked(AppSettings::instance().tipsMuted());
+    });
     menu->addSeparator();
     menu->addAction(tr("Quit SMILE"), this, &QWidget::close);
     next->setEnabled(false);

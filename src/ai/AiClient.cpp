@@ -97,7 +97,7 @@ void AiClient::chat(const QString &system, const QString &user, int maxTokens, T
     });
 }
 
-void AiClient::analyzeImage(const QImage &image, const QString &prompt, JsonCallback done)
+void AiClient::analyzeImage(const QImage &image, const QString &prompt, JsonCallback done, bool fast)
 {
     if (!isConfigured()) {
         done({}, tr("No AI key set."));
@@ -111,7 +111,7 @@ void AiClient::analyzeImage(const QImage &image, const QString &prompt, JsonCall
     scaled.save(&buffer, "JPEG", 75);
     const QString dataUrl = QStringLiteral("data:image/jpeg;base64,") + QString::fromLatin1(jpeg.toBase64());
 
-    const QString visionModel = AppSettings::instance().visionModel();
+    const QString visionModel = fast ? AppSettings::fastVisionModel() : AppSettings::instance().visionModel();
     const bool big = visionModel.contains(QLatin1String("Kimi"));
     QJsonObject body{
         {QStringLiteral("model"), visionModel},
@@ -132,10 +132,18 @@ void AiClient::analyzeImage(const QImage &image, const QString &prompt, JsonCall
     if (!big)
         body.insert(QStringLiteral("reasoning"), QJsonObject{{QStringLiteral("enabled"), false}});
 
-    QNetworkReply *reply = post(QStringLiteral("/chat/completions"), body);
+    QNetworkRequest request = makeRequest(QStringLiteral("/chat/completions"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    if (fast)
+        request.setTransferTimeout(20000);
+    QNetworkReply *reply = m_net->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [reply, done] {
         reply->deleteLater();
         const QByteArray data = reply->readAll();
+        if (reply->error() == QNetworkReply::OperationCanceledError || reply->error() == QNetworkReply::TimeoutError) {
+            done({}, tr("The AI took too long to answer. Check your connection and try again."));
+            return;
+        }
         if (reply->error() != QNetworkReply::NoError) {
             done({}, errorFrom(reply, data));
             return;

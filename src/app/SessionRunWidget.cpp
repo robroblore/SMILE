@@ -8,25 +8,31 @@
 
 #include "core/SessionController.h"
 #include "core/TimeFormat.h"
+#include "ui/Theme.h"
+#include "ui/Widgets.h"
 
 SessionRunWidget::SessionRunWidget(SessionController *controller, QWidget *parent)
     : QWidget(parent)
     , m_controller(controller)
-    , m_point(new QLabel(this))
-    , m_time(new QLabel(this))
-    , m_total(new QLabel(this))
+    , m_caption(Ui::label(QString(), "caption", this))
+    , m_point(Ui::label(QString(), "bigValue", this))
+    , m_time(Ui::label(QString(), nullptr, this))
+    , m_total(Ui::label(QString(), "secondary", this))
     , m_bar(new QProgressBar(this))
     , m_next(new QPushButton(tr("Next point"), this))
     , m_finish(new QPushButton(tr("Finish"), this))
 {
-    QFont big = m_point->font();
-    big.setPointSizeF(big.pointSizeF() * 1.35);
-    big.setBold(true);
-    m_point->setFont(big);
     m_point->setWordWrap(true);
-
     m_bar->setTextVisible(false);
-    m_bar->setFixedHeight(10);
+
+    QFont timeFont = m_time->font();
+    timeFont.setPointSizeF(timeFont.pointSizeF() * 1.15);
+    timeFont.setWeight(QFont::DemiBold);
+    m_time->setFont(timeFont);
+
+    m_next->setObjectName(QStringLiteral("accent"));
+    m_next->setCursor(Qt::PointingHandCursor);
+    m_finish->setCursor(Qt::PointingHandCursor);
 
     auto *timeRow = new QHBoxLayout;
     timeRow->addWidget(m_time);
@@ -34,15 +40,20 @@ SessionRunWidget::SessionRunWidget(SessionController *controller, QWidget *paren
     timeRow->addWidget(m_total);
 
     auto *buttons = new QHBoxLayout;
-    buttons->addStretch();
+    buttons->setSpacing(8);
     buttons->addWidget(m_next);
     buttons->addWidget(m_finish);
+    buttons->addStretch();
 
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 8, 0, 0);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(8);
+    layout->addWidget(m_caption);
     layout->addWidget(m_point);
+    layout->addSpacing(4);
     layout->addWidget(m_bar);
     layout->addLayout(timeRow);
+    layout->addSpacing(6);
     layout->addLayout(buttons);
 
     connect(m_next, &QPushButton::clicked, m_controller, &SessionController::nextPoint);
@@ -65,28 +76,38 @@ void SessionRunWidget::refresh()
     const int elapsed = m_controller->elapsedOnCurrent();
     const bool last = index == agenda.size() - 1;
 
-    m_point->setText(tr("Point %1 of %2: %3").arg(index + 1).arg(agenda.size()).arg(point.title));
-    m_next->setText(last ? tr("Finish last point") : tr("Next point"));
+    m_caption->setText(tr("POINT %1 OF %2").arg(index + 1).arg(agenda.size()));
+    m_point->setText(point.title);
+    m_next->setText(last ? tr("Finish") : tr("Next point"));
+    m_finish->setVisible(!last);
+    m_finish->setText(tr("End early"));
 
+    QString state = QStringLiteral("normal");
     if (point.targetSeconds > 0) {
         const bool over = elapsed > point.targetSeconds;
-        m_bar->setVisible(true);
+        state = over ? QStringLiteral("over") : state;
         m_bar->setRange(0, point.targetSeconds);
         m_bar->setValue(qMin(elapsed, point.targetSeconds));
-        m_bar->setStyleSheet(over ? QStringLiteral("QProgressBar::chunk { background: #D9534F; }") : QString());
         QString text = tr("%1 / %2").arg(formatDuration(elapsed), formatDuration(point.targetSeconds));
         if (over)
-            text += tr("  (%1 over)").arg(formatDuration(elapsed - point.targetSeconds));
+            text = tr("%1 over").arg(formatDuration(elapsed - point.targetSeconds));
         m_time->setText(text);
+        m_time->setStyleSheet(over ? QStringLiteral("color: %1;").arg(Theme::css(Theme::colors().critical))
+                                   : QString());
     } else {
-        m_bar->setVisible(false);
+        m_bar->setRange(0, 0); // busy indicator
         m_time->setText(formatDuration(elapsed));
+        m_time->setStyleSheet(QString());
+    }
+    if (m_bar->property("state").toString() != state) {
+        m_bar->setProperty("state", state);
+        Theme::repolish(m_bar);
     }
 
     int totalTarget = 0;
     for (const AgendaPoint &p : agenda)
         totalTarget += p.targetSeconds;
     const QString total = formatDuration(m_controller->totalElapsed());
-    m_total->setText(totalTarget > 0 ? tr("Total %1 / %2").arg(total, formatDuration(totalTarget))
+    m_total->setText(totalTarget > 0 ? tr("Total %1 of %2").arg(total, formatDuration(totalTarget))
                                      : tr("Total %1").arg(total));
 }

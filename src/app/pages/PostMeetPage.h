@@ -4,7 +4,7 @@
 
 #include "core/SessionReport.h"
 
-class QTextBrowser;
+class QVBoxLayout;
 
 // Phase 4: what went well, what to improve, and next steps. Today the report is
 // built from timing and the tips logged; the LLM feedback engine will add to it.
@@ -19,5 +19,7 @@ public slots:
     void showReport(const SessionReport &report);
 
 private:
-    QTextBrowser *m_view;
+    QWidget *m_empty;
+    QWidget *m_report;
+    QVBoxLayout *m_reportLayout;
 };

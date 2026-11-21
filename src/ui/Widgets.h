@@ -1,0 +1,114 @@
+#pragma once
+
+#include <QAbstractButton>
+#include <QFrame>
+#include <QVariantAnimation>
+
+#include "ui/Icons.h"
+
+class QLabel;
+class QScrollArea;
+class QVBoxLayout;
+
+// Windows 11 style on/off switch.
+class ToggleSwitch : public QAbstractButton
+{
+    Q_OBJECT
+public:
+    explicit ToggleSwitch(QWidget *parent = nullptr);
+    QSize sizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+
+private:
+    QVariantAnimation m_anim; // knob position 0..1
+    bool m_hover = false;
+};
+
+// Round check mark, used for checklist items.
+class CheckCircle : public QAbstractButton
+{
+    Q_OBJECT
+public:
+    explicit CheckCircle(QWidget *parent = nullptr);
+    QSize sizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+};
+
+// Item in the left navigation pane: icon + label, accent pill when selected.
+class NavButton : public QAbstractButton
+{
+    Q_OBJECT
+public:
+    NavButton(Icons::Icon icon, const QString &text, QWidget *parent = nullptr);
+    QSize sizeHint() const override;
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+
+private:
+    Icons::Icon m_icon;
+    bool m_hover = false;
+};
+
+// The SMILE face as a plain widget (logo, empty states).
+class SmileyBadge : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit SmileyBadge(int size, qreal smile = 0.8, QWidget *parent = nullptr);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    qreal m_smile;
+};
+
+// A rounded "card" surface with a vertical layout.
+class Card : public QFrame
+{
+    Q_OBJECT
+public:
+    explicit Card(QWidget *parent = nullptr);
+    explicit Card(const QString &title, QWidget *parent = nullptr);
+    QVBoxLayout *body() const { return m_body; }
+
+private:
+    QVBoxLayout *m_body;
+};
+
+// Title + description on the left, a control (toggle, check...) on the right.
+// Clicking anywhere on the row toggles the control.
+class OptionRow : public QWidget
+{
+    Q_OBJECT
+public:
+    OptionRow(const QString &title, const QString &description, QAbstractButton *control,
+              bool controlOnLeft = false, QWidget *parent = nullptr);
+    QAbstractButton *control() const { return m_control; }
+
+protected:
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+    void enterEvent(QEnterEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+
+private:
+    QAbstractButton *m_control;
+    bool m_hover = false;
+};
+
+namespace Ui {
+QLabel *label(const QString &text, const char *objectName = nullptr, QWidget *parent = nullptr);
+QWidget *pageHeader(const QString &title, const QString &subtitle, QWidget *parent = nullptr);
+QScrollArea *scrollPage(QWidget *content);
+QFrame *divider(QWidget *parent = nullptr);
+} // namespace Ui

@@ -20,6 +20,7 @@ private:
     void refresh();
 
     SessionController *m_controller;
+    QLabel *m_caption;
     QLabel *m_point;
     QLabel *m_time;
     QLabel *m_total;

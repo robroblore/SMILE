@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(SMILE
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Smart Meeting Interactive Live Education"
     LANGUAGES CXX)
 
@@ -26,6 +26,14 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
     src/core/SessionController.h
     src/core/SessionController.cpp
 
+    # UI kit: Windows 11 style theme, icons and controls
+    src/ui/Theme.h
+    src/ui/Theme.cpp
+    src/ui/Icons.h
+    src/ui/Icons.cpp
+    src/ui/Widgets.h
+    src/ui/Widgets.cpp
+
     # Companion: the floating on-screen coach
     src/companion/SmileyPainter.h
     src/companion/SmileyPainter.cpp
@@ -35,6 +43,8 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
     # Main app window and the four phase pages
     src/app/MainWindow.h
     src/app/MainWindow.cpp
+    src/app/AgendaEditor.h
+    src/app/AgendaEditor.cpp
     src/app/SessionRunWidget.h
     src/app/SessionRunWidget.cpp
     src/app/pages/TrainingPage.h

@@ -1,34 +1,63 @@
 #include "companion/CompanionWindow.h"
 
 #include <QContextMenuEvent>
+#include <QEasingCurve>
 #include <QGuiApplication>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRandomGenerator>
 #include <QScreen>
+#include <QSettings>
 #include <QWindow>
+#include <QtMath>
+
+#include "ui/Theme.h"
 
 namespace {
-constexpr int kWidth = 340;
-constexpr int kHeight = 230;
-constexpr int kFaceSize = 88;
-constexpr int kMargin = 10;
-constexpr int kMaxQueuedTips = 3;
-constexpr int kBubblePadX = 14;
-constexpr int kBubblePadY = 10;
+constexpr int kWidth = 380;
+constexpr int kHeight = 210;
+constexpr int kFace = 76;
+constexpr int kMargin = 16;   // room for shadows
+constexpr int kPadX = 16;
+constexpr int kPadY = 12;
+constexpr int kMaxBubbleWidth = kWidth - 2 * kMargin;
+constexpr int kStaleTipMs = 30000; // drop a waiting tip after this long
+const char *kPosKey = "companion/position";
 
-QColor accentFor(TipSeverity severity)
+QColor accentFor(const Tip &tip)
 {
-    switch (severity) {
+    const Theme::Colors &c = Theme::colors();
+    switch (tip.severity) {
     case TipSeverity::Positive:
-        return QColor(0x2E, 0x9E, 0x5B);
+        return c.success;
     case TipSeverity::Warning:
-        return QColor(0xD9, 0x6A, 0x1E);
+        return c.dark ? QColor(0xFF, 0xB9, 0x00) : QColor(0xD8, 0x6A, 0x00);
     case TipSeverity::Info:
         break;
     }
-    return QColor(0x3B, 0x7D, 0xD8);
+    return c.accent;
+}
+
+qreal clamp01(qreal v)
+{
+    return qBound<qreal>(0.0, v, 1.0);
+}
+
+QFont headerFont(const QFont &base)
+{
+    QFont f = base;
+    f.setPointSizeF(base.pointSizeF() * 0.85);
+    f.setWeight(QFont::DemiBold);
+    return f;
+}
+
+QFont bodyFont(const QFont &base)
+{
+    QFont f = base;
+    f.setPointSizeF(base.pointSizeF() * 1.08);
+    return f;
 }
 } // namespace
 
@@ -38,169 +67,350 @@ CompanionWindow::CompanionWindow(QWidget *parent)
 {
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
-    setAttribute(Qt::WA_MacAlwaysShowToolWindow); // stay visible while another app is focused
+    setAttribute(Qt::WA_MacAlwaysShowToolWindow); // stay visible while the meeting app is focused
     setFixedSize(kWidth, kHeight);
-    setWindowTitle(tr("SMILE companion"));
-    setToolTip(tr("Drag to move. Click to dismiss a tip. Double-click to open SMILE."));
+    setWindowTitle(tr("SMILE"));
+    setMouseTracking(true);
 
-    m_tipTimer.setSingleShot(true);
-    connect(&m_tipTimer, &QTimer::timeout, this, &CompanionWindow::dismissTip);
+    m_appear.setStartValue(0.0);
+    m_appear.setEndValue(1.0);
+    connect(&m_appear, &QVariantAnimation::finished, this, &CompanionWindow::onAppearFinished);
 
-    // A blink every few seconds makes the companion feel alive.
-    m_blinkTimer.setInterval(4200);
-    connect(&m_blinkTimer, &QTimer::timeout, this, [this] {
-        m_eyesClosed = true;
-        update();
-        QTimer::singleShot(160, this, [this] {
-            m_eyesClosed = false;
-            update();
-        });
+    m_frame.setInterval(16);
+    connect(&m_frame, &QTimer::timeout, this, &CompanionWindow::onFrame);
+
+    m_hold.setSingleShot(true);
+    connect(&m_hold, &QTimer::timeout, this, &CompanionWindow::startLeaving);
+
+    m_pendingTimer.setSingleShot(true);
+    connect(&m_pendingTimer, &QTimer::timeout, this, [this] {
+        if (m_pending && m_pendingAge.elapsed() < kStaleTipMs && m_state == State::Hidden) {
+            const Tip tip = *m_pending;
+            m_pending.reset();
+            popUp(tip);
+        } else {
+            m_pending.reset();
+        }
     });
-    m_blinkTimer.start();
+
+    m_blinkTimer.setSingleShot(true);
+    connect(&m_blinkTimer, &QTimer::timeout, this, [this] {
+        m_face.eyeOpen = 0.0;
+        m_target.eyeOpen = 0.0;
+        QTimer::singleShot(110, this, [this] { m_target.eyeOpen = 1.0; });
+        scheduleBlink();
+    });
+
+    // After glancing at its bubble, the companion looks back at the user.
+    m_lookTimer.setSingleShot(true);
+    connect(&m_lookTimer, &QTimer::timeout, this, [this] {
+        m_target.lookX = 0.0;
+        m_target.lookY = 0.0;
+    });
 }
 
-void CompanionWindow::moveToDefaultPosition()
-{
-    const QScreen *screen = QGuiApplication::primaryScreen();
-    if (!screen)
-        return;
-    const QRect area = screen->availableGeometry();
-    move(area.right() - width() - 24, area.bottom() - height() - 24);
-}
+// ----------------------------------------------------------------- public API
 
 void CompanionWindow::showTip(const Tip &tip)
 {
-    m_queue.enqueue(tip);
-    while (m_queue.size() > kMaxQueuedTips)
-        m_queue.dequeue(); // drop stale tips rather than lag behind
-    if (!m_current)
-        showNextTip();
+    if (m_snoozedUntil.isForever() || !m_snoozedUntil.hasExpired())
+        return;
+
+    const bool tooSoon = m_sinceHidden.isValid() && m_sinceHidden.elapsed() < m_gapMs;
+    if (m_state != State::Hidden || tooSoon) {
+        // Keep only the newest tip; older ones are no longer relevant.
+        m_pending = tip;
+        m_pendingAge.restart();
+        if (m_state == State::Hidden)
+            m_pendingTimer.start(int(m_gapMs - m_sinceHidden.elapsed()));
+        return;
+    }
+    popUp(tip);
 }
 
-void CompanionWindow::dismissTip()
+void CompanionWindow::previewTip(const Tip &tip)
 {
-    m_current.reset();
-    m_tipTimer.stop();
-    showNextTip();
-    update();
+    if (m_state == State::Hidden || m_state == State::Leaving) {
+        m_appear.stop();
+        m_state = State::Hidden;
+        popUp(tip);
+    } else {
+        setCurrentTip(tip);
+        m_hold.start();
+    }
+}
+
+void CompanionWindow::dismiss()
+{
+    if (m_state == State::Entering || m_state == State::Shown)
+        startLeaving();
 }
 
 void CompanionWindow::setSessionActive(bool active)
 {
     m_sessionActive = active;
     if (!active) {
-        m_queue.clear();
-        m_current.reset();
-        m_tipTimer.stop();
+        m_pending.reset();
+        m_pendingTimer.stop();
+        m_sinceHidden.invalidate();
+        m_snoozedUntil = QDeadlineTimer(0);
+        dismiss();
     }
+}
+
+void CompanionWindow::resetPosition()
+{
+    QSettings().remove(QLatin1String(kPosKey));
+    if (isVisible())
+        placeOnScreen();
+}
+
+// ------------------------------------------------------------- show / hide
+
+void CompanionWindow::popUp(const Tip &tip)
+{
+    setCurrentTip(tip);
+
+    // Land a little squashed and surprised, then settle into the tip's mood.
+    m_face = m_target;
+    m_face.squash = 0.8;
+    m_face.smile = qMin<qreal>(m_target.smile, 0.3);
+    m_face.lookX = -0.7;
+    m_face.lookY = -0.6;
+    m_target.squash = 0.0;
+    m_target.lookX = -0.7;
+    m_target.lookY = -0.6;
+    m_lookTimer.start(1400);
+
+    placeOnScreen();
+    m_state = State::Entering;
+    m_clock.restart();
+    show();
+    raise();
+
+    m_appear.stop();
+    m_appear.setDirection(QAbstractAnimation::Forward);
+    m_appear.setDuration(520);
+    m_appear.setEasingCurve(QEasingCurve::Linear);
+    m_appear.start();
+    m_frame.start();
+    scheduleBlink();
+}
+
+void CompanionWindow::setCurrentTip(const Tip &tip)
+{
+    m_current = tip;
+    m_target = faceFor(tip);
+    m_target.lookX = m_face.lookX;
+    m_target.lookY = m_face.lookY;
+
+    // Size the bubble to its text
+    const QFontMetrics header(headerFont(font()));
+    const QFontMetrics body(bodyFont(font()));
+    const int maxText = kMaxBubbleWidth - 2 * kPadX;
+    const QRect textRect = body.boundingRect(QRect(0, 0, maxText, 1000), Qt::TextWordWrap, tip.text);
+    const int headerWidth = header.horizontalAdvance(categoryName(tip.category)) + 16;
+    const int w = qBound(170, qMax(textRect.width(), headerWidth) + 2 * kPadX, kMaxBubbleWidth);
+    const int h = header.height() + 6 + textRect.height() + 2 * kPadY;
+
+    const QRectF face = faceRect();
+    const qreal right = width() - kMargin;
+    const qreal bottom = face.top() - 10;
+    m_bubble = QRectF(right - w, bottom - h, w, h);
+
+    m_hold.setInterval(qMin(4500 + 45 * int(tip.text.size()), 9000));
     update();
 }
 
-void CompanionWindow::showNextTip()
+void CompanionWindow::startLeaving()
 {
-    if (m_queue.isEmpty())
+    if (m_state == State::Hidden || m_state == State::Leaving)
         return;
-    m_current = m_queue.dequeue();
-    // Long enough to read, short enough not to linger.
-    m_tipTimer.start(6000 + 45 * static_cast<int>(m_current->text.size()));
-    update();
+    m_hold.stop();
+    m_state = State::Leaving;
+    m_appear.stop();
+    m_appear.setDirection(QAbstractAnimation::Backward);
+    m_appear.setDuration(260);
+    m_appear.start();
+}
+
+void CompanionWindow::onAppearFinished()
+{
+    if (m_state == State::Entering) {
+        m_state = State::Shown;
+        if (!m_hover)
+            m_hold.start();
+    } else if (m_state == State::Leaving) {
+        m_state = State::Hidden;
+        m_frame.stop();
+        m_blinkTimer.stop();
+        m_current.reset();
+        hide();
+        m_sinceHidden.restart();
+        if (m_pending)
+            m_pendingTimer.start(m_gapMs);
+    }
+}
+
+void CompanionWindow::placeOnScreen()
+{
+    m_placing = true;
+    const QPoint saved = QSettings().value(QLatin1String(kPosKey)).toPoint();
+    QScreen *screen = saved.isNull() ? nullptr : QGuiApplication::screenAt(saved + QPoint(width() / 2, height() / 2));
+    if (screen) {
+        move(saved);
+    } else if (QScreen *primary = QGuiApplication::primaryScreen()) {
+        const QRect area = primary->availableGeometry();
+        move(area.right() - width() - 8, area.bottom() - height() - 8);
+    }
+    m_placing = false;
+}
+
+void CompanionWindow::scheduleBlink()
+{
+    m_blinkTimer.start(QRandomGenerator::global()->bounded(2200, 5200));
+}
+
+SmileyPainter::Face CompanionWindow::faceFor(const Tip &tip) const
+{
+    SmileyPainter::Face f;
+    if (tip.category == TipCategory::Expression && tip.severity != TipSeverity::Warning) {
+        f.smile = 1.0; // show, don't tell: a big smile to encourage one back
+        return f;
+    }
+    switch (tip.severity) {
+    case TipSeverity::Positive:
+        f.smile = 0.95;
+        break;
+    case TipSeverity::Info:
+        f.smile = 0.4;
+        f.worry = 0.15;
+        break;
+    case TipSeverity::Warning:
+        f.smile = 0.0;
+        f.worry = 0.85;
+        break;
+    }
+    return f;
 }
 
 QRectF CompanionWindow::faceRect() const
 {
-    return QRectF(width() - kFaceSize - kMargin, height() - kFaceSize - kMargin, kFaceSize, kFaceSize);
+    return QRectF(width() - kMargin - kFace, height() - kMargin - kFace, kFace, kFace);
 }
 
-QFont CompanionWindow::headerFont() const
-{
-    QFont f = font();
-    f.setPointSizeF(f.pointSizeF() * 0.8);
-    f.setBold(true);
-    f.setLetterSpacing(QFont::PercentageSpacing, 108);
-    return f;
-}
+// ------------------------------------------------------------------ painting
 
-QFont CompanionWindow::bodyFont() const
+void CompanionWindow::onFrame()
 {
-    QFont f = font();
-    f.setPointSizeF(f.pointSizeF() * 1.1);
-    return f;
-}
-
-QRectF CompanionWindow::bubbleRect() const
-{
-    // The bubble sits just above the face and grows upwards to fit the text.
-    const qreal maxHeight = height() - kFaceSize - 3 * kMargin;
-    const qreal width = this->width() - 2 * kMargin;
-    qreal needed = 0;
-    if (m_current) {
-        const int textWidth = int(width) - 2 * kBubblePadX;
-        const QRect body = QFontMetrics(bodyFont()).boundingRect(QRect(0, 0, textWidth, 10000),
-                                                                 Qt::TextWordWrap, m_current->text);
-        needed = QFontMetrics(headerFont()).height() + 4 + body.height() + 2 * kBubblePadY;
-    }
-    const qreal h = qBound<qreal>(56, needed, maxHeight);
-    return QRectF(kMargin, kMargin + maxHeight - h, width, h);
-}
-
-SmileyPainter::Mood CompanionWindow::currentMood() const
-{
-    if (!m_current)
-        return m_sessionActive ? SmileyPainter::Mood::Happy : SmileyPainter::Mood::Neutral;
-    switch (m_current->severity) {
-    case TipSeverity::Warning:
-        return SmileyPainter::Mood::Concerned;
-    case TipSeverity::Info:
-        return SmileyPainter::Mood::Neutral;
-    case TipSeverity::Positive:
-        break;
-    }
-    return SmileyPainter::Mood::Happy;
+    m_face = SmileyPainter::approach(m_face, m_target, 0.14);
+    update();
 }
 
 void CompanionWindow::paintEvent(QPaintEvent *)
 {
+    if (!m_current)
+        return;
+
+    const Theme::Colors &c = Theme::colors();
+    const qreal t = m_appear.currentValue().isValid() ? m_appear.currentValue().toReal() : 1.0;
+    const qreal faceT = QEasingCurve(QEasingCurve::OutBack).valueForProgress(clamp01(t / 0.7));
+    const qreal bubbleT = QEasingCurve(QEasingCurve::OutCubic).valueForProgress(clamp01((t - 0.3) / 0.7));
+    const qreal seconds = m_clock.isValid() ? m_clock.elapsed() / 1000.0 : 0.0;
+    const qreal bob = std::sin(seconds * 2.4) * 2.0;
+
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    if (m_current) {
-        const QRectF bubble = bubbleRect();
-        const QColor accent = accentFor(m_current->severity);
+    // ---- Face, popping up from its bottom centre
+    const QRectF face = faceRect();
+    const qreal scale = qMax<qreal>(0.0, faceT);
+    p.setOpacity(clamp01(t * 2.0));
 
-        // Bubble with a tail pointing down at the face
-        QPainterPath path;
-        path.addRoundedRect(bubble, 14, 14);
-        const QRectF face = faceRect();
-        QPainterPath tail;
-        tail.moveTo(face.center().x() - 26, bubble.bottom() - 1);
-        tail.lineTo(face.center().x() - 4, face.top() + 6);
-        tail.lineTo(face.center().x() - 4, bubble.bottom() - 1);
-        tail.closeSubpath();
-        path = path.united(tail);
+    // Contact shadow
+    QRadialGradient shadow(QPointF(face.center().x(), face.bottom() + 2), face.width() * 0.45);
+    shadow.setColorAt(0.0, QColor(0, 0, 0, 70));
+    shadow.setColorAt(1.0, QColor(0, 0, 0, 0));
+    p.setPen(Qt::NoPen);
+    p.setBrush(shadow);
+    p.drawEllipse(QPointF(face.center().x(), face.bottom() + 2), face.width() * 0.42 * scale, 6 * scale);
 
-        p.setPen(QPen(accent, 2));
-        p.setBrush(QColor(255, 255, 255, 245));
-        p.drawPath(path);
+    p.save();
+    p.translate(face.center().x(), face.bottom() + bob * scale);
+    p.scale(scale, scale);
+    SmileyPainter::paint(p, QRectF(-face.width() / 2, -face.height(), face.width(), face.height()), m_face);
+    p.restore();
 
-        // Header: category (and "demo" for placeholder tips)
-        QString header = categoryName(m_current->category).toUpper();
-        if (m_current->source == QLatin1String("demo"))
-            header += tr("  ·  DEMO");
-        p.setFont(headerFont());
-        p.setPen(accent);
-        const QRectF inner = bubble.adjusted(kBubblePadX, kBubblePadY, -kBubblePadX, -kBubblePadY);
-        p.drawText(inner, Qt::AlignLeft | Qt::AlignTop, header);
+    // ---- Bubble
+    if (bubbleT <= 0.0)
+        return;
+    p.setOpacity(bubbleT);
+    p.save();
+    p.translate(0, (1.0 - bubbleT) * 10);
 
-        p.setFont(bodyFont());
-        p.setPen(QColor(0x22, 0x22, 0x22));
-        const int headerHeight = QFontMetrics(headerFont()).height() + 4;
-        p.drawText(inner.adjusted(0, headerHeight, 0, 0), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
-                   m_current->text);
+    const QRectF b = m_bubble;
+    QPainterPath shape;
+    shape.addRoundedRect(b, 10, 10);
+    QPainterPath tail;
+    const qreal tx = face.center().x() - 6;
+    tail.moveTo(tx - 12, b.bottom() - 1);
+    tail.quadTo(tx, b.bottom() + 4, tx + 4, b.bottom() + 11);
+    tail.quadTo(tx + 3, b.bottom() + 3, tx + 10, b.bottom() - 1);
+    tail.closeSubpath();
+    shape = shape.united(tail);
+
+    // Soft layered shadow
+    p.setPen(Qt::NoPen);
+    for (int i = 8; i >= 1; --i) {
+        p.setBrush(QColor(0, 0, 0, c.dark ? 9 : 4));
+        p.drawRoundedRect(b.adjusted(-i, -i + 4, i, i + 4), 10 + i, 10 + i);
     }
 
-    if (!m_sessionActive && !m_current)
-        p.setOpacity(0.85);
-    SmileyPainter::paint(p, faceRect(), currentMood(), m_eyesClosed);
+    p.setPen(QPen(c.dark ? QColor(255, 255, 255, 22) : QColor(0, 0, 0, 22), 1));
+    p.setBrush(c.flyout);
+    p.drawPath(shape);
+
+    // Header: coloured dot + category
+    const QColor accent = accentFor(*m_current);
+    const QFont hf = headerFont(font());
+    const QFontMetrics hfm(hf);
+    const QRectF inner = b.adjusted(kPadX, kPadY, -kPadX, -kPadY);
+    p.setPen(Qt::NoPen);
+    p.setBrush(accent);
+    p.drawEllipse(QPointF(inner.left() + 4, inner.top() + hfm.height() / 2.0), 4, 4);
+    p.setFont(hf);
+    p.setPen(c.textSecondary);
+    QString header = categoryName(m_current->category);
+    if (m_current->source == QLatin1String("demo"))
+        header += tr(" · demo");
+    p.drawText(QRectF(inner.left() + 14, inner.top(), inner.width() - 14, hfm.height()),
+               Qt::AlignLeft | Qt::AlignVCenter, header);
+
+    // Body
+    p.setFont(bodyFont(font()));
+    p.setPen(c.text);
+    p.drawText(inner.adjusted(0, hfm.height() + 6, 0, 0), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
+               m_current->text);
+    p.restore();
+}
+
+// --------------------------------------------------------------- interaction
+
+void CompanionWindow::enterEvent(QEnterEvent *)
+{
+    m_hover = true;
+    m_hold.stop(); // stay while the user is reading
+    m_target.lookX = -0.2;
+    m_target.lookY = 0.3;
+}
+
+void CompanionWindow::leaveEvent(QEvent *)
+{
+    m_hover = false;
+    m_target.lookX = 0.0;
+    m_target.lookY = 0.0;
+    if (m_state == State::Shown)
+        m_hold.start(2000);
 }
 
 void CompanionWindow::mousePressEvent(QMouseEvent *event)
@@ -208,64 +418,63 @@ void CompanionWindow::mousePressEvent(QMouseEvent *event)
     if (event->button() != Qt::LeftButton)
         return;
     m_pressed = true;
-    m_dragging = false;
+    m_dragged = false;
     m_pressPos = event->globalPosition().toPoint();
-    m_dragOffset = m_pressPos - frameGeometry().topLeft();
 }
 
 void CompanionWindow::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_pressed || m_dragging)
+    if (!m_pressed || m_dragged)
         return;
-    const QPoint global = event->globalPosition().toPoint();
-    if ((global - m_pressPos).manhattanLength() < 6)
+    if ((event->globalPosition().toPoint() - m_pressPos).manhattanLength() < 6)
         return;
-
-    m_dragging = true;
-    // Let the window system move us (needed on Wayland); fall back to manual moves.
-    if (windowHandle() && windowHandle()->startSystemMove()) {
-        m_pressed = false;
-        return;
-    }
-    move(global - m_dragOffset);
+    m_dragged = true;
+    m_pressed = false;
+    if (windowHandle())
+        windowHandle()->startSystemMove(); // works on Wayland, X11, Windows and macOS
 }
 
 void CompanionWindow::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton)
         return;
-    const bool wasClick = m_pressed && !m_dragging;
+    const bool click = m_pressed && !m_dragged;
     m_pressed = false;
-    m_dragging = false;
-    if (wasClick && m_current)
-        dismissTip();
+    if (click)
+        dismiss();
 }
 
-void CompanionWindow::mouseDoubleClickEvent(QMouseEvent *event)
+void CompanionWindow::mouseDoubleClickEvent(QMouseEvent *)
 {
-    if (faceRect().contains(event->position()))
-        emit openMainWindowRequested();
+    emit openMainWindowRequested();
+    dismiss();
 }
 
 void CompanionWindow::contextMenuEvent(QContextMenuEvent *event)
 {
+    m_hold.stop();
     QMenu menu(this);
-    QAction *dismiss = menu.addAction(tr("Dismiss tip"), this, &CompanionWindow::dismissTip);
-    dismiss->setEnabled(m_current.has_value());
-    menu.addAction(tr("Open SMILE"), this, &CompanionWindow::openMainWindowRequested);
+    menu.addAction(tr("Dismiss"), this, &CompanionWindow::dismiss);
+    menu.addAction(tr("Snooze tips for 10 minutes"), this, [this] {
+        m_snoozedUntil = QDeadlineTimer(10 * 60 * 1000);
+        m_pending.reset();
+        dismiss();
+    });
     menu.addSeparator();
-    menu.addAction(tr("Hide companion"), this, &QWidget::hide);
+    QAction *next = menu.addAction(tr("Next point"), this, &CompanionWindow::nextPointRequested);
+    QAction *end = menu.addAction(tr("End session"), this, &CompanionWindow::endSessionRequested);
+    next->setEnabled(m_sessionActive);
+    end->setEnabled(m_sessionActive);
+    menu.addSeparator();
+    menu.addAction(tr("Open SMILE"), this, &CompanionWindow::openMainWindowRequested);
     menu.exec(event->globalPos());
+    if (m_state == State::Shown && !m_hover)
+        m_hold.start(2000);
 }
 
-void CompanionWindow::showEvent(QShowEvent *event)
+void CompanionWindow::moveEvent(QMoveEvent *event)
 {
-    QWidget::showEvent(event);
-    emit visibilityChanged(true);
-}
-
-void CompanionWindow::hideEvent(QHideEvent *event)
-{
-    QWidget::hideEvent(event);
-    emit visibilityChanged(false);
+    QWidget::moveEvent(event);
+    if (!m_placing && isVisible())
+        QSettings().setValue(QLatin1String(kPosKey), pos());
 }

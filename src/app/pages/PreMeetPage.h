@@ -3,9 +3,9 @@
 #include <QList>
 #include <QWidget>
 
-class QCheckBox;
+class QAbstractButton;
 class QLabel;
-class QPushButton;
+class QProgressBar;
 
 // Phase 2: a readiness checklist before joining. Today the user ticks items by
 // hand; later the vision module will check framing, collar, visible notes etc.
@@ -22,8 +22,7 @@ signals:
 private:
     void updateProgress();
 
-    QList<QCheckBox *> m_items;
-    QLabel *m_progress;
-    QPushButton *m_autoCheck;
-    QPushButton *m_goToMeet;
+    QList<QAbstractButton *> m_items;
+    QLabel *m_progressText;
+    QProgressBar *m_progress;
 };

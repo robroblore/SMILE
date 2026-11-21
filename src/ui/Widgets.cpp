@@ -212,6 +212,14 @@ void CameraPreview::setMessage(const QString &message)
     update();
 }
 
+void CameraPreview::setFace(const FaceFrame &face, bool looking)
+{
+    m_face = face;
+    m_looking = looking;
+    if (m_overlay)
+        update();
+}
+
 void CameraPreview::paintEvent(QPaintEvent *)
 {
     const Theme::Colors &c = Theme::colors();
@@ -232,6 +240,84 @@ void CameraPreview::paintEvent(QPaintEvent *)
         const QRectF target(r.center().x() - drawn.width() / 2, r.center().y() - drawn.height() / 2, drawn.width(),
                             drawn.height());
         p.drawImage(target, m_frame);
+
+        if (m_overlay) {
+            auto map = [&target](const QPointF &n) {
+                return QPointF(target.left() + n.x() * target.width(), target.top() + n.y() * target.height());
+            };
+            // Objects flagged by the cloud AI
+            for (const Marked &m : std::as_const(m_marked)) {
+                const QRectF r(map(m.box.topLeft()), map(m.box.bottomRight()));
+                p.setPen(QPen(c.critical, 2, Qt::DashLine));
+                p.setBrush(Qt::NoBrush);
+                p.drawRect(r);
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(0, 0, 0, 150));
+                const QRectF tag(r.left(), r.top() - 18, QFontMetrics(font()).horizontalAdvance(m.label) + 10, 18);
+                p.drawRect(tag);
+                p.setPen(Qt::white);
+                p.drawText(tag, Qt::AlignCenter, m.label);
+            }
+            if (m_face.found) {
+                const QColor tone = m_looking ? QColor(0x4C, 0xD9, 0x64) : QColor(0xFF, 0xA9, 0x4D);
+                const QRectF box(map(m_face.box.topLeft()), map(m_face.box.bottomRight()));
+                // Corner brackets rather than a full box: less clutter
+                p.setPen(QPen(tone, 2.5, Qt::SolidLine, Qt::RoundCap));
+                p.setBrush(Qt::NoBrush);
+                const qreal k = qMin(box.width(), box.height()) * 0.22;
+                const QPointF corners[4] = {box.topLeft(), box.topRight(), box.bottomRight(), box.bottomLeft()};
+                const QPointF dirs[4] = {{1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
+                for (int i = 0; i < 4; ++i) {
+                    p.drawLine(corners[i], corners[i] + QPointF(dirs[i].x() * k, 0));
+                    p.drawLine(corners[i], corners[i] + QPointF(0, dirs[i].y() * k));
+                }
+                // Landmarks: eyes, nose, mouth corners
+                const QPointF eyeA = map(m_face.landmarks[0]);
+                const QPointF eyeB = map(m_face.landmarks[1]);
+                const QPointF nose = map(m_face.landmarks[2]);
+                const QPointF mouthA = map(m_face.landmarks[3]);
+                const QPointF mouthB = map(m_face.landmarks[4]);
+                p.setPen(QPen(QColor(255, 255, 255, 140), 1));
+                p.drawLine(eyeA, eyeB);
+                p.drawLine(mouthA, mouthB);
+                p.drawLine((eyeA + eyeB) / 2, nose);
+                const QColor colours[5] = {QColor(0x4C, 0xC2, 0xFF), QColor(0x4C, 0xC2, 0xFF), QColor(0xFF, 0xD2, 0x3C),
+                                           QColor(0xFF, 0x6B, 0xC8), QColor(0xFF, 0x6B, 0xC8)};
+                const QPointF pts[5] = {eyeA, eyeB, nose, mouthA, mouthB};
+                for (int i = 0; i < 5; ++i) {
+                    p.setPen(QPen(Qt::black, 1));
+                    p.setBrush(colours[i]);
+                    p.drawEllipse(pts[i], 4, 4);
+                }
+                // Head direction arrow from the nose
+                const qreal len = QLineF(eyeA, eyeB).length() * 1.5;
+                const QPointF tip = nose + QPointF(m_face.yaw * len, (m_face.pitch - 0.6) * len);
+                p.setPen(QPen(tone, 2, Qt::SolidLine, Qt::RoundCap));
+                p.drawLine(nose, tip);
+                // Numbers
+                const QString info = QStringLiteral("yaw %1  pitch %2  mouth %3  %4 ms")
+                                         .arg(m_face.yaw, 0, 'f', 2)
+                                         .arg(m_face.pitch, 0, 'f', 2)
+                                         .arg(m_face.mouthRatio, 0, 'f', 2)
+                                         .arg(m_face.detectMs, 0, 'f', 0);
+                QFont f = font();
+                f.setPointSizeF(f.pointSizeF() * 0.85);
+                p.setFont(f);
+                const QRectF tag(box.left(), box.bottom() + 4, QFontMetrics(f).horizontalAdvance(info) + 12, 20);
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(0, 0, 0, 160));
+                p.drawRoundedRect(tag, 4, 4);
+                p.setPen(Qt::white);
+                p.drawText(tag, Qt::AlignCenter, info);
+            } else if (m_face.timestampMs > 0) {
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(0, 0, 0, 150));
+                const QRectF tag(r.left() + 10, r.top() + 10, 150, 22);
+                p.drawRoundedRect(tag, 4, 4);
+                p.setPen(QColor(0xFF, 0xA9, 0x4D));
+                p.drawText(tag, Qt::AlignCenter, tr("No face detected"));
+            }
+        }
     } else {
         Icons::paint(p, QRectF(r.center().x() - 14, r.center().y() - 30, 28, 28), Icons::Icon::Camera,
                      c.textSecondary);

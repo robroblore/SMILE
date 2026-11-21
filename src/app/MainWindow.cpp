@@ -13,6 +13,7 @@
 #include <QSystemTrayIcon>
 #include <QVBoxLayout>
 
+#include "app/DebugWindow.h"
 #include "app/pages/MeetPage.h"
 #include "app/pages/PostMeetPage.h"
 #include "app/pages/PreMeetPage.h"
@@ -23,7 +24,9 @@
 #include "ai/VisionTipSource.h"
 #include "companion/CompanionWindow.h"
 #include "companion/SmileyPainter.h"
+#include "core/AppSettings.h"
 #include "core/DemoTipSource.h"
+#include "core/LiveSignals.h"
 #include "core/SessionController.h"
 #include "sensors/CameraMonitor.h"
 #include "sensors/MicrophoneMonitor.h"
@@ -45,11 +48,14 @@ MainWindow::MainWindow(QWidget *parent)
     // Tip sources: camera (expression, posture, appearance), microphone
     // (monologues, filler words, pace) and the optional demo source.
     m_controller->addTipSource(new VisionTipSource(m_camera, m_ai));
-    m_controller->addTipSource(new SpeechTipSource(m_mic, m_ai));
+    auto *speech = new SpeechTipSource(m_mic, m_ai);
+    m_controller->addTipSource(speech);
+    // What you say is checked against the key points of each section
+    connect(speech, &SpeechTipSource::transcribed, m_controller, &SessionController::addTranscript);
     auto *demo = new DemoTipSource;
     m_controller->addTipSource(demo);
 
-    auto *training = new TrainingPage(m_controller);
+    auto *training = new TrainingPage(m_controller, m_ai);
     auto *preMeet = new PreMeetPage(m_camera, m_ai);
     auto *meet = new MeetPage(m_controller, demo);
     auto *postMeet = new PostMeetPage(m_ai);
@@ -57,7 +63,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_pages->addWidget(preMeet);
     m_pages->addWidget(meet);
     m_pages->addWidget(postMeet);
-    m_pages->addWidget(new SettingsPage(m_camera, m_mic, m_ai));
+    auto *settings = new SettingsPage(m_camera, m_mic, m_ai);
+    m_pages->addWidget(settings);
+    connect(settings, &SettingsPage::openDebugRequested, this, &MainWindow::showDebug);
 
     auto *root = new QWidget(this);
     root->setObjectName(QStringLiteral("root"));
@@ -85,10 +93,17 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         m_companion->showTip(tip);
     });
+    // Every tip, with its reason, goes to the debug log
+    connect(m_controller, &SessionController::tipLogged, this, [](const Tip &tip) {
+        LiveSignals::instance().addEvent(LiveSignals::Event::Tip, tip.text, tip.reason);
+    });
     connect(m_controller, &SessionController::runningChanged, this, [this](bool running) {
         m_companion->setSessionActive(running);
         const bool meeting = running && m_controller->mode() == SessionMode::Meeting;
-        m_companion->setMinimumGap(meeting ? 45000 : 20000);
+        const AppSettings::Thresholds t = AppSettings::instance().thresholds();
+        m_companion->setMinimumGap((meeting ? t.meetingGapSeconds : t.trainingGapSeconds) * 1000);
+        if (running && AppSettings::instance().debugMode())
+            showDebug();
         if (meeting) {
             showMinimized(); // get out of the way during the call
             if (m_tray)
@@ -106,13 +121,23 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_companion, &CompanionWindow::openMainWindowRequested, this, &MainWindow::bringToFront);
     connect(m_companion, &CompanionWindow::nextPointRequested, m_controller, &SessionController::nextPoint);
     connect(m_companion, &CompanionWindow::endSessionRequested, m_controller, &SessionController::stop);
+    connect(m_companion, &CompanionWindow::debugViewRequested, this, &MainWindow::showDebug);
 
     showPage(TrainingPageIndex);
 }
 
 MainWindow::~MainWindow()
 {
+    delete m_debug;
     delete m_companion;
+}
+
+void MainWindow::showDebug()
+{
+    if (!m_debug)
+        m_debug = new DebugWindow(m_camera, m_mic, m_controller);
+    m_debug->show();
+    m_debug->raise();
 }
 
 QWidget *MainWindow::buildNavigation()
@@ -239,6 +264,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     m_controller->stop();
     m_companion->close();
+    if (m_debug)
+        m_debug->close();
     if (m_tray)
         m_tray->hide();
     event->accept();

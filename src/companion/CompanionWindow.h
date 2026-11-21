@@ -35,6 +35,7 @@ signals:
     void openMainWindowRequested();
     void nextPointRequested();
     void endSessionRequested();
+    void debugViewRequested();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -81,6 +82,7 @@ private:
     SmileyPainter::Face m_target;
     QRectF m_bubble;
     bool m_hover = false;
+    bool m_showReason = false;
 
     QPoint m_pressPos;
     bool m_pressed = false;

@@ -36,8 +36,44 @@ public:
     QByteArray microphoneId() const;
     void setMicrophoneId(const QByteArray &id);
 
+    // How often the cloud vision model looks (it is also asked immediately
+    // when the local face tracker notices a change).
     int snapshotIntervalSeconds() const;
     void setSnapshotIntervalSeconds(int seconds);
+
+    // How quickly SMILE speaks up. Each preset maps to the thresholds below.
+    enum class Sensitivity { Relaxed, Balanced, Responsive };
+    Sensitivity sensitivity() const;
+    void setSensitivity(Sensitivity s);
+
+    struct Thresholds {
+        int noSmileSeconds;      // no smile for this long -> "Try smiling more"
+        int lookAwaySeconds;     // looking away from the camera
+        int faceMissingSeconds;  // face out of frame
+        int postureSeconds;      // same bad posture for this long
+        int fastWpm;             // speaking faster than this
+        int fillersPerMinute;    // filler words in the last minute
+        int monologueSeconds;    // talking without a pause
+        int repeatCooldownSeconds; // before the same tip can repeat
+        int meetingGapSeconds;   // minimum quiet time between pop-ups in a meeting
+        int trainingGapSeconds;  // ... and in training
+    };
+    Thresholds thresholds() const;
+
+    bool debugMode() const;
+    void setDebugMode(bool on);
+
+    // The Training page's speech text, its mode and the structured sections
+    QString speechText() const;
+    void setSpeechText(const QString &text);
+    bool speechAsBullets() const;
+    void setSpeechAsBullets(bool bullets);
+    int targetMinutes() const;
+    void setTargetMinutes(int minutes);
+    QString presentationType() const;
+    void setPresentationType(const QString &type);
+    QByteArray agendaJson() const;
+    void setAgendaJson(const QByteArray &json);
 
 signals:
     void changed();

@@ -4,30 +4,53 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include "core/Plural.h"
 #include "ui/Icons.h"
 #include "ui/Theme.h"
+#include "ui/Widgets.h"
 
 namespace {
 
-class AgendaRow : public QWidget
+QPushButton *iconButton(Icons::Icon icon, const QString &tip, QWidget *parent)
+{
+    auto *b = new QPushButton(parent);
+    b->setObjectName(QStringLiteral("subtle"));
+    b->setIcon(Icons::icon(icon, Theme::colors().textSecondary, 14));
+    b->setToolTip(tip);
+    b->setCursor(Qt::PointingHandCursor);
+    b->setFixedSize(30, 30);
+    return b;
+}
+
+class SectionRow : public QFrame
 {
 public:
-    explicit AgendaRow(QWidget *parent)
-        : QWidget(parent)
-        , number(new QLabel(this))
+    explicit SectionRow(QWidget *parent)
+        : QFrame(parent)
+        , number(Ui::label(QString(), "secondary", this))
         , title(new QLineEdit(this))
         , minutes(new QDoubleSpinBox(this))
-        , remove(new QPushButton(this))
+        , expand(iconButton(Icons::Icon::ChevronRight, AgendaEditor::tr("Show purpose and key points"), this))
+        , up(iconButton(Icons::Icon::ArrowUp, AgendaEditor::tr("Move up"), this))
+        , down(iconButton(Icons::Icon::ArrowDown, AgendaEditor::tr("Move down"), this))
+        , remove(iconButton(Icons::Icon::Close, AgendaEditor::tr("Remove this section"), this))
+        , details(new QWidget(this))
+        , summary(new QLineEdit(details))
+        , keyPoints(new QPlainTextEdit(details))
+        , count(Ui::label(QString(), "secondary", this))
     {
-        number->setFixedWidth(22);
+        number->setFixedWidth(20);
         number->setAlignment(Qt::AlignCenter);
-        number->setObjectName(QStringLiteral("secondary"));
-
-        title->setPlaceholderText(AgendaEditor::tr("What do you want to get across?"));
+        title->setPlaceholderText(AgendaEditor::tr("Section heading"));
+        QFont f = title->font();
+        f.setWeight(QFont::DemiBold);
+        title->setFont(f);
 
         minutes->setRange(0.0, 120.0);
         minutes->setSingleStep(0.5);
@@ -36,28 +59,76 @@ public:
         minutes->setSpecialValueText(AgendaEditor::tr("No limit"));
         minutes->setButtonSymbols(QAbstractSpinBox::NoButtons);
         minutes->setAlignment(Qt::AlignRight);
-        minutes->setFixedWidth(96);
-        minutes->setToolTip(AgendaEditor::tr("Target time for this point. Scroll or type to change it."));
+        minutes->setFixedWidth(92);
+        minutes->setToolTip(AgendaEditor::tr("Target time for this section. Scroll or type to change it."));
 
-        remove->setObjectName(QStringLiteral("subtle"));
-        remove->setIcon(Icons::icon(Icons::Icon::Close, Theme::colors().textSecondary, 14));
-        remove->setToolTip(AgendaEditor::tr("Remove this point"));
-        remove->setCursor(Qt::PointingHandCursor);
-        remove->setFixedSize(32, 32);
+        summary->setPlaceholderText(AgendaEditor::tr("Purpose: what this section must achieve"));
+        keyPoints->setPlaceholderText(AgendaEditor::tr("Key points to get across, one per line.\n"
+                                                       "SMILE checks that you actually say them."));
+        keyPoints->setFixedHeight(92);
+        keyPoints->setTabChangesFocus(true);
 
-        auto *layout = new QHBoxLayout(this);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(8);
-        layout->addWidget(number);
-        layout->addWidget(title, 1);
-        layout->addWidget(minutes);
-        layout->addWidget(remove);
+        auto *head = new QHBoxLayout;
+        head->setSpacing(6);
+        head->addWidget(expand);
+        head->addWidget(number);
+        head->addWidget(title, 1);
+        head->addWidget(count);
+        head->addWidget(minutes);
+        head->addWidget(up);
+        head->addWidget(down);
+        head->addWidget(remove);
+
+        auto *d = new QVBoxLayout(details);
+        d->setContentsMargins(64, 2, 104, 8);
+        d->setSpacing(6);
+        d->addWidget(summary);
+        d->addWidget(keyPoints);
+        details->hide();
+
+        auto *v = new QVBoxLayout(this);
+        v->setContentsMargins(0, 2, 0, 2);
+        v->setSpacing(4);
+        v->addLayout(head);
+        v->addWidget(details);
+
+        QObject::connect(expand, &QPushButton::clicked, this, [this] { setExpanded(details->isHidden()); });
+        QObject::connect(keyPoints, &QPlainTextEdit::textChanged, this, [this] { updateCount(); });
+    }
+
+    void setExpanded(bool on)
+    {
+        details->setVisible(on);
+        expand->setIcon(Icons::icon(on ? Icons::Icon::ChevronDown : Icons::Icon::ChevronRight,
+                                    Theme::colors().textSecondary, 14));
+    }
+
+    QStringList points() const
+    {
+        QStringList list;
+        for (const QString &line : keyPoints->toPlainText().split(QLatin1Char('\n'))) {
+            QString t = line.trimmed();
+            t.remove(QRegularExpression(QStringLiteral("^[•\\-*]\\s*")));
+            if (!t.isEmpty())
+                list << t;
+        }
+        return list;
+    }
+
+    void updateCount()
+    {
+        const int n = int(points().size());
+        count->setText(n ? plural(n, AgendaEditor::tr("%1 key point"), AgendaEditor::tr("%1 key points")) : QString());
     }
 
     QLabel *number;
     QLineEdit *title;
     QDoubleSpinBox *minutes;
-    QPushButton *remove;
+    QPushButton *expand, *up, *down, *remove;
+    QWidget *details;
+    QLineEdit *summary;
+    QPlainTextEdit *keyPoints;
+    QLabel *count;
 };
 
 } // namespace
@@ -67,22 +138,38 @@ AgendaEditor::AgendaEditor(QWidget *parent)
     , m_rows(new QVBoxLayout(this))
 {
     m_rows->setContentsMargins(0, 0, 0, 0);
-    m_rows->setSpacing(6);
+    m_rows->setSpacing(4);
 }
 
 void AgendaEditor::addPoint(const QString &title, double minutes, bool focus)
 {
-    auto *row = new AgendaRow(this);
-    row->title->setText(title);
-    row->minutes->setValue(minutes);
+    AgendaPoint p;
+    p.title = title;
+    p.targetSeconds = qRound(minutes * 60);
+    addSection(p, focus, focus);
+    emit changed();
+}
+
+void AgendaEditor::addSection(const AgendaPoint &point, bool focus, bool expanded)
+{
+    auto *row = new SectionRow(this);
+    row->title->setText(point.title);
+    row->minutes->setValue(point.targetSeconds / 60.0);
+    row->summary->setText(point.summary);
+    row->keyPoints->setPlainText(point.keyPoints.join(QLatin1Char('\n')));
+    row->updateCount();
+    row->setExpanded(expanded);
     m_rows->addWidget(row);
 
     connect(row->title, &QLineEdit::textChanged, this, &AgendaEditor::changed);
     connect(row->minutes, &QDoubleSpinBox::valueChanged, this, &AgendaEditor::changed);
+    connect(row->summary, &QLineEdit::textChanged, this, &AgendaEditor::changed);
+    connect(row->keyPoints, &QPlainTextEdit::textChanged, this, &AgendaEditor::changed);
+    connect(row->up, &QPushButton::clicked, this, [this, row] { move(row, -1); });
+    connect(row->down, &QPushButton::clicked, this, [this, row] { move(row, +1); });
     connect(row->remove, &QPushButton::clicked, this, [this, row] {
         row->hide();
         row->deleteLater();
-        // Wait until the row is gone before reporting the new agenda
         QTimer::singleShot(0, this, [this] {
             renumber();
             emit changed();
@@ -94,6 +181,28 @@ void AgendaEditor::addPoint(const QString &title, double minutes, bool focus)
         row->title->setFocus();
         row->title->selectAll();
     }
+}
+
+void AgendaEditor::setAgenda(const Agenda &agenda)
+{
+    while (QLayoutItem *item = m_rows->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+    for (const AgendaPoint &p : agenda)
+        addSection(p, false, false);
+    emit changed();
+}
+
+void AgendaEditor::move(QWidget *row, int delta)
+{
+    const int from = m_rows->indexOf(row);
+    const int to = from + delta;
+    if (from < 0 || to < 0 || to >= m_rows->count())
+        return;
+    m_rows->removeWidget(row);
+    m_rows->insertWidget(to, row);
+    renumber();
     emit changed();
 }
 
@@ -101,13 +210,17 @@ Agenda AgendaEditor::agenda() const
 {
     Agenda result;
     for (int i = 0; i < m_rows->count(); ++i) {
-        auto *row = static_cast<AgendaRow *>(m_rows->itemAt(i)->widget());
+        auto *row = static_cast<SectionRow *>(m_rows->itemAt(i)->widget());
         if (!row || row->isHidden())
             continue;
-        const QString title = row->title->text().trimmed();
-        if (title.isEmpty())
+        AgendaPoint p;
+        p.title = row->title->text().trimmed();
+        if (p.title.isEmpty())
             continue;
-        result.append({title, qRound(row->minutes->value() * 60.0), 0, false});
+        p.targetSeconds = qRound(row->minutes->value() * 60.0);
+        p.summary = row->summary->text().trimmed();
+        p.keyPoints = row->points();
+        result.append(p);
     }
     return result;
 }
@@ -115,9 +228,13 @@ Agenda AgendaEditor::agenda() const
 void AgendaEditor::renumber()
 {
     int n = 1;
-    for (int i = 0; i < m_rows->count(); ++i) {
-        auto *row = static_cast<AgendaRow *>(m_rows->itemAt(i)->widget());
-        if (row && !row->isHidden())
-            row->number->setText(QString::number(n++));
+    const int total = m_rows->count();
+    for (int i = 0; i < total; ++i) {
+        auto *row = static_cast<SectionRow *>(m_rows->itemAt(i)->widget());
+        if (!row || row->isHidden())
+            continue;
+        row->number->setText(QString::number(n++));
+        row->up->setEnabled(i > 0);
+        row->down->setEnabled(i < total - 1);
     }
 }

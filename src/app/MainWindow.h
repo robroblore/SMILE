@@ -6,6 +6,7 @@
 class AiClient;
 class CameraMonitor;
 class CompanionWindow;
+class DebugWindow;
 class MicrophoneMonitor;
 class NavButton;
 class QStackedWidget;
@@ -34,6 +35,7 @@ private:
     void bringToFront();
     void showAbout();
     void previewTip();
+    void showDebug();
 
     SessionController *m_controller;
     AiClient *m_ai;
@@ -43,4 +45,5 @@ private:
     QStackedWidget *m_pages;
     QList<NavButton *> m_nav;
     QSystemTrayIcon *m_tray = nullptr;
+    DebugWindow *m_debug = nullptr;
 };

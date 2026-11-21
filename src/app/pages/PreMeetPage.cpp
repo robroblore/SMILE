@@ -1,6 +1,8 @@
 #include "app/pages/PreMeetPage.h"
 
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <cmath>
 #include <QJsonObject>
 #include <QLabel>
 #include <QProgressBar>
@@ -114,6 +116,10 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
         if (isVisible())
             m_preview->setFrame(frame);
     });
+    connect(m_camera, &CameraMonitor::faceReady, this, [this](const FaceFrame &face) {
+        if (isVisible() && AppSettings::instance().debugMode())
+            m_preview->setFace(face, face.found && std::abs(face.yaw) < 0.22f);
+    });
     connect(m_camera, &CameraMonitor::errorOccurred, this, [this](const QString &message) {
         m_preview->setMessage(message);
     });
@@ -135,6 +141,8 @@ QString PreMeetPage::checkPrompt()
         "  \"collar_straight\": true|false,    // collar and clothing look tidy (true if not visible)\n"
         "  \"nothing_distracting\": true|false,// no notes, papers, clutter or distracting objects in view\n"
         "  \"upright\": true|false,            // sitting upright, not slouching\n"
+        "  \"reasons\": {\"<key of each false item>\": \"what exactly you saw that made it false\"},\n"
+        "  \"distractions\": [{\"label\": \"short name of the object\", \"box\": [x1, y1, x2, y2]}],  // 0..1 image coordinates\n"
         "  \"advice\": \"one or two short, friendly sentences: the most important fix, or a compliment\"\n"
         "}");
 }
@@ -160,6 +168,7 @@ void PreMeetPage::hideEvent(QHideEvent *event)
 
 void PreMeetPage::updateCameraState()
 {
+    m_preview->setOverlay(AppSettings::instance().debugMode());
     const bool camera = AppSettings::instance().useCamera();
     if (!camera) {
         m_preview->setMessage(tr("The camera is turned off in Settings."));
@@ -215,13 +224,36 @@ void PreMeetPage::runCheck()
             {"nothing_distracting", Distractions, tr("Move notes or clutter out of view.")},
             {"upright", Upright, tr("Sit up straight.")},
         };
+        const bool debug = AppSettings::instance().debugMode();
+        const QJsonObject reasons = r.value(QLatin1String("reasons")).toObject();
         QStringList issues;
         for (const Check &check : checks) {
             const bool ok = r.value(QLatin1String(check.key)).toBool();
             m_items[check.item]->setChecked(ok);
-            if (!ok)
-                issues << check.issue;
+            if (ok)
+                continue;
+            QString issue = check.issue;
+            const QString why = reasons.value(QLatin1String(check.key)).toString();
+            if (debug && !why.isEmpty())
+                issue += QLatin1Char('\n') + tr("Why: %1").arg(why);
+            issues << issue;
         }
+        QList<CameraPreview::Marked> marked;
+        QStringList objects;
+        for (const QJsonValue &v : r.value(QLatin1String("distractions")).toArray()) {
+            const QJsonObject o = v.toObject();
+            const QJsonArray b = o.value(QLatin1String("box")).toArray();
+            const QString label = o.value(QLatin1String("label")).toString();
+            objects << label;
+            if (b.size() == 4) {
+                const QRectF box(QPointF(b[0].toDouble(), b[1].toDouble()), QPointF(b[2].toDouble(), b[3].toDouble()));
+                if (box.isValid() && box.width() <= 1.0 && box.height() <= 1.0)
+                    marked.append({box.normalized(), label});
+            }
+        }
+        m_preview->setMarked(debug ? marked : QList<CameraPreview::Marked>());
+        if (debug && !objects.isEmpty())
+            issues << tr("Detected in view: %1").arg(objects.join(QStringLiteral(", ")));
 
         const Theme::Colors &c = Theme::colors();
         QString html = QStringLiteral("<p>%1</p>").arg(r.value(QLatin1String("advice")).toString().toHtmlEscaped());
@@ -231,7 +263,7 @@ void PreMeetPage::runCheck()
         } else {
             html += QStringLiteral("<ul style='margin-left:-20px'>");
             for (const QString &issue : std::as_const(issues))
-                html += QStringLiteral("<li>%1</li>").arg(issue.toHtmlEscaped());
+                html += QStringLiteral("<li>%1</li>").arg(issue.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br><i>")) + (issue.contains(QLatin1Char('\n')) ? QStringLiteral("</i>") : QString()));
             html += QStringLiteral("</ul>");
         }
         m_result->setText(html);

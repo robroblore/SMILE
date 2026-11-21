@@ -6,6 +6,7 @@
 #include <QVariantAnimation>
 
 #include "ui/Icons.h"
+#include "vision/FaceFrame.h"
 
 class QLabel;
 class QScrollArea;
@@ -73,7 +74,9 @@ private:
     qreal m_smile;
 };
 
-// Shows the latest camera frame with rounded corners (aspect-fill).
+// Shows the latest camera frame with rounded corners (aspect-fill). In debug
+// mode it can draw the face tracker's box, landmarks and head direction, and
+// boxes around objects the cloud AI flagged.
 class CameraPreview : public QWidget
 {
     Q_OBJECT
@@ -81,6 +84,13 @@ public:
     explicit CameraPreview(QWidget *parent = nullptr);
     void setFrame(const QImage &frame);
     void setMessage(const QString &message); // shown when there is no frame
+    void setOverlay(bool enabled) { m_overlay = enabled; update(); }
+    void setFace(const FaceFrame &face, bool looking);
+    struct Marked {
+        QRectF box; // normalised
+        QString label;
+    };
+    void setMarked(const QList<Marked> &marked) { m_marked = marked; update(); }
     QSize sizeHint() const override { return {360, 240}; }
 
 protected:
@@ -89,6 +99,10 @@ protected:
 private:
     QImage m_frame;
     QString m_message;
+    bool m_overlay = false;
+    FaceFrame m_face;
+    bool m_looking = true;
+    QList<Marked> m_marked;
 };
 
 // Horizontal input level meter (microphone).

@@ -23,3 +23,6 @@ compile_commands.json
 
 # Tool logs
 aqtinstall.log
+
+# Downloaded dependencies
+third_party/

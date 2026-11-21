@@ -138,6 +138,49 @@ void paint(QPainter &p, const QRectF &rect, Icon icon, const QColor &color)
         p.drawLine(QPointF(10.75, 12.75), QPointF(14.25, 12.75));
         break;
     }
+    case Icon::ArrowUp:
+        p.drawLine(QPointF(8, 13), QPointF(8, 3));
+        p.drawLine(QPointF(4, 7), QPointF(8, 3));
+        p.drawLine(QPointF(12, 7), QPointF(8, 3));
+        break;
+    case Icon::ArrowDown:
+        p.drawLine(QPointF(8, 3), QPointF(8, 13));
+        p.drawLine(QPointF(4, 9), QPointF(8, 13));
+        p.drawLine(QPointF(12, 9), QPointF(8, 13));
+        break;
+    case Icon::ChevronDown:
+        p.drawLine(QPointF(4, 6), QPointF(8, 10));
+        p.drawLine(QPointF(12, 6), QPointF(8, 10));
+        break;
+    case Icon::ChevronRight:
+        p.drawLine(QPointF(6, 4), QPointF(10, 8));
+        p.drawLine(QPointF(6, 12), QPointF(10, 8));
+        break;
+    case Icon::Bug:
+        p.drawEllipse(QRectF(5, 5, 6, 9));
+        p.drawLine(QPointF(8, 7.5), QPointF(8, 14));
+        p.drawArc(QRectF(6, 2.5, 4, 4), 0, 180 * 16);
+        for (qreal y : {7.0, 9.5, 12.0}) {
+            p.drawLine(QPointF(5, y), QPointF(2.5, y - 1));
+            p.drawLine(QPointF(11, y), QPointF(13.5, y - 1));
+        }
+        break;
+    case Icon::Text:
+        p.drawLine(QPointF(2.5, 4), QPointF(13.5, 4));
+        p.drawLine(QPointF(2.5, 7), QPointF(13.5, 7));
+        p.drawLine(QPointF(2.5, 10), QPointF(13.5, 10));
+        p.drawLine(QPointF(2.5, 13), QPointF(9, 13));
+        break;
+    case Icon::Bullets:
+        for (qreal y : {4.0, 8.0, 12.0}) {
+            p.drawLine(QPointF(6, y), QPointF(13.5, y));
+            p.save();
+            p.setBrush(color);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(QPointF(3, y), 1.1, 1.1);
+            p.restore();
+        }
+        break;
     }
     p.restore();
 }

@@ -34,6 +34,7 @@ struct Colors {
     QColor success;
     QColor caution;
     QColor critical;
+    QColor orange;         // "needs work" rating
 };
 
 const Colors &colors();
@@ -46,5 +47,8 @@ void repolish(QWidget *widget);
 
 // "#RRGGBB" or "rgba(r,g,b,a)" for use in stylesheets/HTML
 QString css(const QColor &color);
+
+// Green / orange / red for a rating (see core/Rating.h)
+QColor ratingColor(int rating); // 0 none, 1 good, 2 needs work, 3 poor
 
 } // namespace Theme

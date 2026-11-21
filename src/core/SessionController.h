@@ -43,6 +43,8 @@ public:
     int elapsedOnCurrent() const;
 
 public slots:
+    // Speech transcribed while the session runs; used to track key points.
+    void addTranscript(const QString &text);
     void start(SessionMode mode);
     void nextPoint();
     void stop();
@@ -53,6 +55,7 @@ signals:
     void currentPointChanged(int index);
     void ticked();
     void tipRaised(const Tip &tip); // only categories shown live
+    void tipLogged(const Tip &tip); // every tip, for the debug view
     void finished(const SessionReport &report);
 
 private:
@@ -60,6 +63,8 @@ private:
     void closeCurrentPoint();
     void beginPoint(int index);
     void raiseTip(const Tip &tip);
+    void updateCoverage(int index, bool announce);
+    void checkSkippedKeyPoints(int index);
 
     Agenda m_agenda;
     Agenda m_active;
@@ -76,4 +81,7 @@ private:
     bool m_nearEndWarned = false;
     QDateTime m_startedAt;
     QList<Tip> m_log;
+    int m_previousIndex = -1;
+    qint64 m_switchedAtMs = 0;
+    bool m_heardSpeech = false;
 };

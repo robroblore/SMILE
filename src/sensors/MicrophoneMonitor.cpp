@@ -20,8 +20,10 @@ constexpr int kFrameSamples = 480; // 30 ms
 constexpr int kFrameMs = 30;
 constexpr int kHangoverMs = 300;
 constexpr int kRunBreakMs = 1500;    // a pause this long ends a monologue
-constexpr int kChunkMinMs = 25000;   // send audio for transcription every ~25 s
-constexpr int kChunkMaxMs = 40000;
+constexpr int kChunkMinMs = 9000;    // send audio for transcription every ~9-15 s
+constexpr int kChunkMaxMs = 15000;
+constexpr int kWindowFrames = 334;   // ~10 s of 30 ms frames
+constexpr int kEnvelope = 11;        // ~330 ms around a candidate syllable
 
 QByteArray wavFromPcm16(const QVector<qint16> &samples, int rate)
 {
@@ -59,6 +61,25 @@ MicrophoneMonitor::MicrophoneMonitor(QObject *parent)
     : QObject(parent)
 {
     m_frame.reserve(kFrameSamples);
+    m_window.fill(0, kWindowFrames);
+}
+
+double MicrophoneMonitor::syllablesPerSecond() const
+{
+    int speech = 0, syllables = 0;
+    for (quint8 f : m_window) {
+        speech += (f & 1) ? 1 : 0;
+        syllables += (f & 2) ? 1 : 0;
+    }
+    return speech >= 30 ? syllables / (speech * kFrameMs / 1000.0) : 0.0; // need ~1 s of speech
+}
+
+int MicrophoneMonitor::recentSpeechMs() const
+{
+    int speech = 0;
+    for (quint8 f : m_window)
+        speech += (f & 1) ? 1 : 0;
+    return speech * kFrameMs;
 }
 
 MicrophoneMonitor::~MicrophoneMonitor()
@@ -89,6 +110,7 @@ void MicrophoneMonitor::resetStats()
     m_longestRunMs = 0;
     m_chunk.clear();
     m_chunkSpeechMs = 0;
+    m_window.fill(0, kWindowFrames);
 }
 
 void MicrophoneMonitor::setChunking(bool on)
@@ -261,6 +283,8 @@ void MicrophoneMonitor::processFrame(const float *samples, int count)
         m_noiseFloorDb += 0.003 * (db - m_noiseFloorDb);
     const double threshold = qMax(m_noiseFloorDb + 10.0, -50.0);
     const bool voiced = db > threshold;
+    m_levelDb = db;
+    m_thresholdDb = threshold;
 
     const bool wasSpeaking = m_speaking;
     if (voiced) {
@@ -292,6 +316,33 @@ void MicrophoneMonitor::processFrame(const float *samples, int count)
     }
     if (m_inRun)
         m_runMs += kFrameMs;
+
+    // Syllable nuclei: a local peak in loudness, clearly above its surroundings,
+    // at least 120 ms after the previous one. Counting them gives a speaking
+    // rate long before a transcript is available.
+    m_envelope.append(db);
+    if (m_envelope.size() > kEnvelope)
+        m_envelope.removeFirst();
+    bool syllable = false;
+    if (m_envelope.size() == kEnvelope) {
+        const int mid = kEnvelope / 2;
+        const double centre = m_envelope[mid];
+        double lowest = centre;
+        bool isPeak = true;
+        for (int i = 0; i < kEnvelope; ++i) {
+            if (i != mid && m_envelope[i] > centre)
+                isPeak = false;
+            lowest = qMin(lowest, m_envelope[i]);
+        }
+        if (isPeak && m_speaking && centre > threshold + 3.0 && centre - lowest >= 5.0
+            && m_frameIndex - m_lastSyllable >= 4) {
+            syllable = true;
+            m_lastSyllable = m_frameIndex;
+        }
+    }
+    m_window[m_windowPos] = quint8((m_speaking ? 1 : 0) | (syllable ? 2 : 0));
+    m_windowPos = (m_windowPos + 1) % kWindowFrames;
+    ++m_frameIndex;
 
     // Meter
     const qreal level = qBound<qreal>(0.0, (db + 60.0) / 55.0, 1.0);

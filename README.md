@@ -97,6 +97,23 @@ Industry professionals heading into meetings where how they come across matters 
 
 ---
 
+## How SMILE watches and listens
+
+SMILE uses **two AIs in tandem**:
+
+| | Local (on your computer) | Cloud (Together AI) |
+|---|---|---|
+| Camera | YuNet face tracker, ~15×/s, ~7 ms per frame: face position, 5 landmarks, head direction (eye contact), mouth shape | Vision model every 3 s **and immediately when the tracker sees a change**: smile, expression, posture, tension, collar, clutter |
+| Voice | Speech detection, talk time, monologues, speaking rate from syllables, twice a second | Whisper on ~10 s clips: exact words, filler words, true words per minute |
+
+The cloud answers also calibrate the local estimates to your face and voice as you go. Tips fire only when a pattern lasts (for example, no smile for 20 s), each kind has a cooldown, and **Settings → Coaching** offers Relaxed, Balanced and Responsive presets.
+
+**Debug mode** (Settings → Debugging) shows the face landmarks on the camera, live values for everything detected, the cloud AI's raw answers, and a log of every alert and tip with the exact reason it fired.
+
+**Training** turns your speech or notes into sections with headings that fit the kind of talk, plus the key points SMILE then listens for. If you move on without saying one, SMILE tells you, and the report rates how many you got across.
+
+---
+
 ## AI coach setup
 
 SMILE's smart features (smile, posture and eye-contact tips, filler-word counting, the Pre-Meet camera check and written feedback) use [Together AI](https://together.ai). Timing, lighting and monologue detection work without it.
@@ -107,9 +124,9 @@ The key is **never** built into the app or committed to git. SMILE looks for it 
 2. The `TOGETHER_API_KEY` environment variable.
 3. A `.env` file in the working directory or next to the app (copy `.env.example` to `.env`). `.env` is git-ignored.
 
-Models used: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera snapshots), `openai/whisper-large-v3` (speech) and `openai/gpt-oss-120b` (feedback). Typical cost is about 15 cents per hour of coaching.
+Models used: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera), `openai/whisper-large-v3` (speech) and `openai/gpt-oss-120b` (structuring and feedback). Typical cost is about 25 cents per hour of coaching.
 
-**Privacy:** while a session runs, a small snapshot is sent every 10 s (adjustable) and speech clips every ~25 s, over HTTPS. Nothing is recorded to disk, and SMILE never changes your video feed. Switch **Analyse with AI** off in Settings to keep everything local.
+**Privacy:** while a session runs, a small snapshot is sent every 3 s or so (adjustable) and speech clips every ~10 s, over HTTPS. Nothing is recorded to disk, and SMILE never changes your video feed. Switch **Analyse with AI** off in Settings to keep everything local.
 
 ---
 

@@ -38,6 +38,7 @@ Colors lightColors()
     c.success = QColor(0x0F, 0x7B, 0x0F);
     c.caution = QColor(0x9D, 0x5D, 0x00);
     c.critical = QColor(0xC4, 0x2B, 0x1C);
+    c.orange = QColor(0xD8, 0x6A, 0x00);
     return c;
 }
 
@@ -66,7 +67,8 @@ Colors darkColors()
     c.track = QColor(0x48, 0x48, 0x48);
     c.success = QColor(0x6C, 0xCB, 0x5F);
     c.caution = QColor(0xFC, 0xE1, 0x00);
-    c.critical = QColor(0xFF, 0x99, 0xA4);
+    c.critical = QColor(0xFF, 0x80, 0x8A);
+    c.orange = QColor(0xFF, 0xA9, 0x4D);
     return c;
 }
 
@@ -117,6 +119,14 @@ QPushButton#subtle { background: transparent; border: 1px solid transparent; pad
 QPushButton#subtle:hover { background: @subtleHover; }
 QPushButton#subtle:pressed { background: @subtlePressed; }
 
+QPushButton#segment { background: transparent; border: 1px solid transparent; padding: 5px 12px; }
+QPushButton#segment:hover { background: @subtleHover; }
+QPushButton#segment:checked { background: @control; border: 1px solid @controlBorder; border-bottom-color: @controlBorderBottom; font-weight: 600; }
+QPlainTextEdit, QTextEdit {
+    background: @control; border: 1px solid @controlBorder; border-bottom: 1px solid @controlBorderBottom;
+    border-radius: 6px; padding: 6px 8px; selection-background-color: @accent; selection-color: @onAccent;
+}
+QPlainTextEdit:focus, QTextEdit:focus { background: @card; border-bottom: 2px solid @accent; }
 QLineEdit, QAbstractSpinBox {
     background: @control; border: 1px solid @controlBorder; border-bottom: 1px solid @controlBorderBottom;
     border-radius: 5px; padding: 5px 10px; min-height: 20px;
@@ -248,6 +258,21 @@ void apply(QApplication &app)
     QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, &app,
                      [&app] { applyColors(app); });
 #endif
+}
+
+QColor ratingColor(int rating)
+{
+    switch (rating) {
+    case 1:
+        return g_colors.success;
+    case 2:
+        return g_colors.orange;
+    case 3:
+        return g_colors.critical;
+    default:
+        break;
+    }
+    return g_colors.textSecondary;
 }
 
 void repolish(QWidget *widget)

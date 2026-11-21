@@ -15,6 +15,8 @@ QString categoryName(TipCategory category)
         return QCoreApplication::translate("Tip", "Speech");
     case TipCategory::Appearance:
         return QCoreApplication::translate("Tip", "Appearance");
+    case TipCategory::Content:
+        return QCoreApplication::translate("Tip", "Key points");
     case TipCategory::General:
         break;
     }
@@ -25,7 +27,8 @@ const QList<TipCategory> &allTipCategories()
 {
     static const QList<TipCategory> categories = {
         TipCategory::Timing,     TipCategory::Posture,    TipCategory::Expression,
-        TipCategory::Speech,     TipCategory::Appearance, TipCategory::General,
+        TipCategory::Speech,     TipCategory::Appearance, TipCategory::Content,
+        TipCategory::General,
     };
     return categories;
 }

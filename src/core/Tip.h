@@ -12,6 +12,7 @@ enum class TipCategory {
     Expression,
     Speech,
     Appearance,
+    Content, // key points of the agenda
     General,
 };
 
@@ -26,6 +27,7 @@ struct Tip {
     TipSeverity severity = TipSeverity::Info;
     QString text;
     QString source; // which module raised it, e.g. "timer" or "demo"
+    QString reason; // why it fired, in plain words (shown in debug mode)
     QDateTime raisedAt = QDateTime::currentDateTime();
 };
 

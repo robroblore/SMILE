@@ -18,6 +18,9 @@ class SettingsPage : public QWidget
 public:
     SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClient *ai, QWidget *parent = nullptr);
 
+signals:
+    void openDebugRequested();
+
 protected:
     void showEvent(QShowEvent *event) override;
     void hideEvent(QHideEvent *event) override;
@@ -25,6 +28,7 @@ protected:
 private:
     void refreshKeyStatus();
     void fillDevices();
+    void describeSensitivity();
 
     CameraMonitor *m_camera;
     MicrophoneMonitor *m_mic;
@@ -37,4 +41,5 @@ private:
     QComboBox *m_cameraCombo;
     QComboBox *m_micCombo;
     LevelMeter *m_meter;
+    QLabel *m_sensitivityText = nullptr;
 };

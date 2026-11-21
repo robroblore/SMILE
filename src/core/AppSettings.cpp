@@ -157,11 +157,96 @@ void AppSettings::setMicrophoneId(const QByteArray &id)
 
 int AppSettings::snapshotIntervalSeconds() const
 {
-    return qBound(5, value("ai/snapshotInterval", 10).toInt(), 120);
+    return qBound(2, value("ai/snapshotSeconds", 3).toInt(), 30);
 }
 
 void AppSettings::setSnapshotIntervalSeconds(int seconds)
 {
-    store("ai/snapshotInterval", qBound(5, seconds, 120));
+    store("ai/snapshotSeconds", qBound(2, seconds, 30));
     emit changed();
+}
+
+AppSettings::Sensitivity AppSettings::sensitivity() const
+{
+    return Sensitivity(qBound(0, value("coach/sensitivity", 1).toInt(), 2));
+}
+
+void AppSettings::setSensitivity(Sensitivity s)
+{
+    store("coach/sensitivity", int(s));
+    emit changed();
+}
+
+AppSettings::Thresholds AppSettings::thresholds() const
+{
+    switch (sensitivity()) {
+    case Sensitivity::Relaxed:
+        return {40, 10, 8, 15, 185, 6, 180, 120, 40, 20};
+    case Sensitivity::Responsive:
+        return {10, 3, 3, 4, 165, 3, 90, 30, 6, 4};
+    case Sensitivity::Balanced:
+        break;
+    }
+    return {20, 6, 5, 8, 175, 4, 120, 60, 15, 8};
+}
+
+bool AppSettings::debugMode() const
+{
+    return value("debug/enabled", false).toBool();
+}
+
+void AppSettings::setDebugMode(bool on)
+{
+    store("debug/enabled", on);
+    emit changed();
+}
+
+QString AppSettings::speechText() const
+{
+    return value("training/speech", QString()).toString();
+}
+
+void AppSettings::setSpeechText(const QString &text)
+{
+    store("training/speech", text);
+}
+
+bool AppSettings::speechAsBullets() const
+{
+    return value("training/bullets", false).toBool();
+}
+
+void AppSettings::setSpeechAsBullets(bool bullets)
+{
+    store("training/bullets", bullets);
+}
+
+int AppSettings::targetMinutes() const
+{
+    return qBound(1, value("training/targetMinutes", 8).toInt(), 180);
+}
+
+void AppSettings::setTargetMinutes(int minutes)
+{
+    store("training/targetMinutes", minutes);
+}
+
+QString AppSettings::presentationType() const
+{
+    return value("training/type", QString()).toString();
+}
+
+void AppSettings::setPresentationType(const QString &type)
+{
+    store("training/type", type);
+}
+
+QByteArray AppSettings::agendaJson() const
+{
+    return value("training/agenda", QByteArray()).toByteArray();
+}
+
+void AppSettings::setAgendaJson(const QByteArray &json)
+{
+    store("training/agenda", json);
 }

@@ -28,6 +28,8 @@ QString describe(TipCategory category)
         return MeetPage::tr("Filler words, pace, talking for too long.");
     case TipCategory::Appearance:
         return MeetPage::tr("Collar, framing and lighting.");
+    case TipCategory::Content:
+        return MeetPage::tr("When you move on without saying a key point.");
     case TipCategory::General:
         break;
     }

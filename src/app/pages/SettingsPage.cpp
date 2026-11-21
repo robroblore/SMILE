@@ -1,6 +1,7 @@
 #include "app/pages/SettingsPage.h"
 
 #include <QAudioDevice>
+#include <QButtonGroup>
 #include <QCameraDevice>
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -71,8 +72,40 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
         cloud));
     connect(cloud, &QAbstractButton::toggled, &settings, &AppSettings::setCloudAnalysis);
 
+    // ---- Coaching: how quickly SMILE speaks up
+    auto *coachCard = new Card(tr("Coaching"));
+    QLabel *coachIntro = Ui::label(tr("How quickly SMILE reacts. The face tracker on your computer watches ~15 times a "
+                                      "second; the cloud AI looks every few seconds and straight away when the tracker "
+                                      "notices a change."),
+                                   "secondary");
+    coachIntro->setWordWrap(true);
+    coachCard->body()->addWidget(coachIntro);
+    auto *sensRow = new QHBoxLayout;
+    sensRow->setSpacing(4);
+    auto *sensGroup = new QButtonGroup(this);
+    const QStringList names = {tr("Relaxed"), tr("Balanced"), tr("Responsive")};
+    for (int i = 0; i < names.size(); ++i) {
+        auto *b = new QPushButton(names[i]);
+        b->setObjectName(QStringLiteral("segment"));
+        b->setCheckable(true);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setChecked(int(settings.sensitivity()) == i);
+        sensGroup->addButton(b, i);
+        sensRow->addWidget(b);
+    }
+    sensRow->addStretch();
+    coachCard->body()->addLayout(sensRow);
+    m_sensitivityText = Ui::label(QString(), "secondary");
+    m_sensitivityText->setWordWrap(true);
+    coachCard->body()->addWidget(m_sensitivityText);
+    connect(sensGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        AppSettings::instance().setSensitivity(AppSettings::Sensitivity(id));
+        describeSensitivity();
+    });
+    describeSensitivity();
+
     auto *interval = new QSpinBox;
-    interval->setRange(5, 120);
+    interval->setRange(2, 30);
     interval->setSuffix(tr(" s"));
     interval->setValue(settings.snapshotIntervalSeconds());
     interval->setButtonSymbols(QAbstractSpinBox::NoButtons);
@@ -82,12 +115,32 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     intervalRow->setContentsMargins(10, 4, 10, 4);
     auto *intervalText = new QVBoxLayout;
     intervalText->setSpacing(1);
-    intervalText->addWidget(Ui::label(tr("Look every")));
-    intervalText->addWidget(Ui::label(tr("How often a snapshot is analysed. Shorter is more responsive."), "secondary"));
+    intervalText->addWidget(Ui::label(tr("Cloud AI looks at least every")));
+    intervalText->addWidget(Ui::label(tr("Shorter is more responsive; each look costs about $0.0001."), "secondary"));
     intervalRow->addLayout(intervalText, 1);
     intervalRow->addWidget(interval);
-    aiCard->body()->addLayout(intervalRow);
+    coachCard->body()->addLayout(intervalRow);
     connect(interval, &QSpinBox::valueChanged, &settings, &AppSettings::setSnapshotIntervalSeconds);
+
+    // ---- Debugging
+    auto *debugCard = new Card(tr("Debugging"));
+    auto *debugToggle = new ToggleSwitch;
+    debugToggle->setChecked(settings.debugMode());
+    debugCard->body()->addWidget(new OptionRow(
+        tr("Debug mode"),
+        tr("Show face-tracking points on the camera preview, explain why every tip fired, and open a live view of "
+           "everything SMILE detects when a session starts."),
+        debugToggle));
+    connect(debugToggle, &QAbstractButton::toggled, &settings, &AppSettings::setDebugMode);
+    auto *openDebug = new QPushButton(tr("Open debug view"));
+    openDebug->setIcon(Icons::icon(Icons::Icon::Bug, Theme::colors().text, 14));
+    openDebug->setCursor(Qt::PointingHandCursor);
+    connect(openDebug, &QPushButton::clicked, this, &SettingsPage::openDebugRequested);
+    auto *debugRow = new QHBoxLayout;
+    debugRow->setContentsMargins(10, 0, 10, 0);
+    debugRow->addWidget(openDebug);
+    debugRow->addStretch();
+    debugCard->body()->addLayout(debugRow);
 
     // ---- Camera
     auto *cameraCard = new Card(tr("Camera"));
@@ -131,8 +184,10 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     layout->setSpacing(12);
     layout->addWidget(Ui::pageHeader(tr("Settings"), tr("AI, camera, microphone and privacy.")));
     layout->addWidget(aiCard);
+    layout->addWidget(coachCard);
     layout->addWidget(cameraCard);
     layout->addWidget(micCard);
+    layout->addWidget(debugCard);
     layout->addStretch();
 
     auto *outer = new QVBoxLayout(this);
@@ -178,6 +233,23 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
 
     refreshKeyStatus();
     fillDevices();
+}
+
+void SettingsPage::describeSensitivity()
+{
+    const AppSettings::Thresholds t = AppSettings::instance().thresholds();
+    m_sensitivityText->setText(tr("Tips after: no smile %1 s · looking away %2 s · face out of frame %3 s · bad posture %4 s · "
+                                  "speaking over %5 wpm · %6 filler words a minute · talking %7 s without a pause. "
+                                  "The same tip waits %8 s before repeating; at least %9 s between tips in a meeting.")
+                                   .arg(t.noSmileSeconds)
+                                   .arg(t.lookAwaySeconds)
+                                   .arg(t.faceMissingSeconds)
+                                   .arg(t.postureSeconds)
+                                   .arg(t.fastWpm)
+                                   .arg(t.fillersPerMinute)
+                                   .arg(t.monologueSeconds)
+                                   .arg(t.repeatCooldownSeconds)
+                                   .arg(t.meetingGapSeconds));
 }
 
 void SettingsPage::refreshKeyStatus()

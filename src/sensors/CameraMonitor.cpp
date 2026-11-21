@@ -4,7 +4,6 @@
 #include <QCameraDevice>
 #include <QCoreApplication>
 #include <QMediaDevices>
-#include <QVideoFrame>
 #include <QtGlobal>
 
 #if QT_CONFIG(permissions)
@@ -12,17 +11,120 @@
 #endif
 
 #include "core/AppSettings.h"
+#include "vision/FaceDetector.h"
+
+namespace {
+constexpr int kMaxWidth = 960;      // plenty for preview and analysis
+constexpr int kDetectEveryMs = 66;  // ~15 face detections per second
+} // namespace
+
+// ---------------------------------------------------------------- FrameWorker
+
+FrameWorker::FrameWorker()
+{
+    m_clock.start();
+}
+
+FrameWorker::~FrameWorker() = default;
+
+void FrameWorker::process(const QVideoFrame &frame)
+{
+    QElapsedTimer t;
+    t.start();
+    QImage image = frame.toImage();
+    if (!image.isNull()) {
+        if (image.width() > kMaxWidth)
+            image = image.scaledToWidth(kMaxWidth, Qt::SmoothTransformation);
+        image = image.mirrored(true, false).convertToFormat(QImage::Format_RGB32);
+        emit imageReady(image, float(t.nsecsElapsed() / 1e6));
+        detect(image);
+    }
+    busy = false;
+}
+
+void FrameWorker::processImage(const QImage &image)
+{
+    emit imageReady(image, 0);
+    m_lastDetect.invalidate();
+    detect(image);
+    busy = false;
+}
+
+void FrameWorker::detect(const QImage &image)
+{
+    if (m_lastDetect.isValid() && m_lastDetect.elapsed() < kDetectEveryMs)
+        return;
+    m_lastDetect.restart();
+    if (!m_detector) {
+        m_detector = std::make_unique<FaceDetector>();
+        m_available = m_detector->isAvailable();
+    }
+    if (!m_available)
+        return;
+
+    QElapsedTimer t;
+    t.start();
+    const QList<FaceDetector::Face> faces = m_detector->detect(image);
+    const float ms = float(t.nsecsElapsed() / 1e6);
+    FaceFrame f;
+    if (!faces.isEmpty())
+        f = FaceFrame::from(faces.first(), image.size(), m_clock.elapsed(), ms);
+    f.timestampMs = m_clock.elapsed();
+    f.detectMs = ms;
+    emit faceReady(f);
+}
+
+// --------------------------------------------------------------- CameraMonitor
 
 CameraMonitor::CameraMonitor(QObject *parent)
     : QObject(parent)
+    , m_worker(new FrameWorker)
 {
+    qRegisterMetaType<FaceFrame>();
+    m_worker->moveToThread(&m_thread);
+    connect(&m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
+    m_thread.setObjectName(QStringLiteral("SMILE camera"));
+    m_thread.start();
+
     m_session.setVideoSink(&m_sink);
     connect(&m_sink, &QVideoSink::videoFrameChanged, this, &CameraMonitor::onFrame);
+    connect(m_worker, &FrameWorker::imageReady, this, [this](const QImage &image, float ms) {
+        if (!m_camera && !m_still)
+            return; // a late frame after stopping
+        m_latest = image;
+        m_convertMs = ms;
+        ++m_frameCount;
+        if (!m_fpsTimer.isValid())
+            m_fpsTimer.start();
+        if (m_fpsTimer.elapsed() >= 1000) {
+            m_fps = m_frameCount * 1000.0f / float(m_fpsTimer.elapsed());
+            m_frameCount = 0;
+            m_fpsTimer.restart();
+        }
+        emit frameReady(image);
+    });
+    connect(m_worker, &FrameWorker::faceReady, this, [this](const FaceFrame &face) {
+        if (!m_camera && !m_still)
+            return;
+        m_face = face;
+        emit faceReady(face);
+    });
 }
 
 CameraMonitor::~CameraMonitor()
 {
     stopCamera();
+    m_thread.quit();
+    m_thread.wait();
+}
+
+bool CameraMonitor::faceTrackingAvailable() const
+{
+#ifdef SMILE_HAVE_ONNX
+    return true;
+#else
+    return false;
+#endif
 }
 
 void CameraMonitor::acquire()
@@ -47,8 +149,8 @@ void CameraMonitor::fail(const QString &message)
 
 void CameraMonitor::startCamera()
 {
-    if (m_camera || !AppSettings::instance().useCamera())
-        return;
+    if (m_camera || m_still || !AppSettings::instance().useCamera())
+        return; // still-image mode never opens a real device
 
 #if QT_CONFIG(permissions)
     QCameraPermission permission;
@@ -83,17 +185,31 @@ void CameraMonitor::startCamera()
 
     m_camera = new QCamera(device, this);
 
-    // A modest resolution is plenty for coaching and keeps CPU use low.
+    // Smooth video matters more than resolution: prefer ~30 fps at up to 720p.
+    auto score = [](const QCameraFormat &f) {
+        const QSize s = f.resolution();
+        const int area = s.width() * s.height();
+        if (area > 1280 * 720 || s.width() < 320)
+            return -1.0;
+        const double fps = qMin<double>(f.maxFrameRate(), 30.0);
+        return fps * 1000.0 + area / 1000.0; // frame rate first, then size
+    };
     QCameraFormat best;
+    double bestScore = -1;
     for (const QCameraFormat &format : device.videoFormats()) {
-        const QSize s = format.resolution();
-        if (s.width() * s.height() > 1280 * 720)
-            continue;
-        if (best.isNull() || s.width() * s.height() > best.resolution().width() * best.resolution().height())
+        const double s = score(format);
+        if (s > bestScore) {
+            bestScore = s;
             best = format;
+        }
     }
-    if (!best.isNull())
+    if (!best.isNull()) {
         m_camera->setCameraFormat(best);
+        m_formatText = QStringLiteral("%1×%2 @ %3 fps")
+                           .arg(best.resolution().width())
+                           .arg(best.resolution().height())
+                           .arg(best.maxFrameRate(), 0, 'f', 0);
+    }
 
     connect(m_camera, &QCamera::errorOccurred, this, [this](QCamera::Error, const QString &message) {
         fail(message.isEmpty() ? tr("The camera stopped unexpectedly.") : message);
@@ -104,6 +220,9 @@ void CameraMonitor::startCamera()
     });
 
     m_error.clear();
+    m_fps = 0;
+    m_frameCount = 0;
+    m_fpsTimer.invalidate();
     m_session.setCamera(m_camera);
     m_camera->start();
 }
@@ -117,26 +236,28 @@ void CameraMonitor::stopCamera()
     m_camera->deleteLater();
     m_camera = nullptr;
     m_latest = QImage();
+    m_face = FaceFrame();
+    m_fps = 0;
     if (m_active) {
         m_active = false;
         emit activeChanged(false);
     }
 }
 
+void CameraMonitor::processStillImage(const QImage &image)
+{
+    m_still = true;
+    const QImage copy = image.convertToFormat(QImage::Format_RGB32);
+    QMetaObject::invokeMethod(m_worker, [worker = m_worker, copy] { worker->processImage(copy); }, Qt::QueuedConnection);
+}
+
 void CameraMonitor::onFrame(const QVideoFrame &frame)
 {
-    // Converting every frame is wasteful; ~10 fps is enough for preview and AI.
-    if (m_lastFrame.isValid() && m_lastFrame.elapsed() < 100)
+    // Hand the frame to the worker unless it is still busy with the previous
+    // one: dropping a frame is better than building up lag.
+    if (!frame.isValid() || m_worker->busy.exchange(true))
         return;
-    m_lastFrame.restart();
-
-    QImage image = frame.toImage();
-    if (image.isNull())
-        return;
-    if (image.width() > 960)
-        image = image.scaledToWidth(960, Qt::SmoothTransformation);
-    m_latest = image.mirrored(true, false).convertToFormat(QImage::Format_RGB32);
-    emit frameReady(m_latest);
+    QMetaObject::invokeMethod(m_worker, [worker = m_worker, frame] { worker->process(frame); }, Qt::QueuedConnection);
 }
 
 CameraMonitor::Lighting CameraMonitor::analyzeLighting(const QImage &frame)

@@ -26,6 +26,13 @@ enum class Icon {
     Camera,
     Mic,
     Sparkle,   // AI
+    ArrowUp,
+    ArrowDown,
+    ChevronDown,
+    ChevronRight,
+    Bug,       // debug
+    Text,      // paragraph
+    Bullets,   // bulleted list
 };
 
 void paint(QPainter &painter, const QRectF &rect, Icon icon, const QColor &color);

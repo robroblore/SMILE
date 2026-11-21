@@ -13,18 +13,20 @@
 #include <QWindow>
 #include <QtMath>
 
+#include "core/AppSettings.h"
 #include "ui/Theme.h"
 
 namespace {
 constexpr int kWidth = 380;
 constexpr int kHeight = 210;
+constexpr int kDebugWidth = 460;   // room for the "why" line in debug mode
+constexpr int kDebugHeight = 330;
 constexpr int kFace = 76;
 constexpr int kMargin = 16;   // room for shadows
 constexpr int kPadX = 16;
 constexpr int kPadY = 12;
-constexpr int kMaxBubbleWidth = kWidth - 2 * kMargin;
 constexpr int kStaleTipMs = 30000; // drop a waiting tip after this long
-const char *kPosKey = "companion/position";
+const char *kPosKey = "companion/anchor"; // bottom-right corner, so resizing keeps it in place
 
 QColor accentFor(const Tip &tip)
 {
@@ -57,6 +59,14 @@ QFont bodyFont(const QFont &base)
 {
     QFont f = base;
     f.setPointSizeF(base.pointSizeF() * 1.08);
+    return f;
+}
+
+QFont reasonFont(const QFont &base)
+{
+    QFont f = base;
+    f.setPointSizeF(base.pointSizeF() * 0.85);
+    f.setItalic(true);
     return f;
 }
 } // namespace
@@ -204,21 +214,40 @@ void CompanionWindow::setCurrentTip(const Tip &tip)
     m_target.lookX = m_face.lookX;
     m_target.lookY = m_face.lookY;
 
-    // Size the bubble to its text
+    // Size the window (bigger in debug mode, to show why) and the bubble to its text
+    const bool debug = AppSettings::instance().debugMode() && !tip.reason.isEmpty();
+    m_showReason = debug;
+    const QSize wanted = debug ? QSize(kDebugWidth, kDebugHeight) : QSize(kWidth, kHeight);
+    if (size() != wanted) {
+        const QPoint anchor = geometry().bottomRight();
+        setFixedSize(wanted);
+        if (isVisible())
+            move(anchor - QPoint(wanted.width() - 1, wanted.height() - 1));
+    }
+    const int maxBubble = width() - 2 * kMargin;
     const QFontMetrics header(headerFont(font()));
     const QFontMetrics body(bodyFont(font()));
-    const int maxText = kMaxBubbleWidth - 2 * kPadX;
+    const int maxText = maxBubble - 2 * kPadX;
     const QRect textRect = body.boundingRect(QRect(0, 0, maxText, 1000), Qt::TextWordWrap, tip.text);
     const int headerWidth = header.horizontalAdvance(categoryName(tip.category)) + 16;
-    const int w = qBound(170, qMax(textRect.width(), headerWidth) + 2 * kPadX, kMaxBubbleWidth);
-    const int h = header.height() + 6 + textRect.height() + 2 * kPadY;
+    int reasonHeight = 0;
+    int reasonWidth = 0;
+    if (debug) {
+        const QRect r = QFontMetrics(reasonFont(font())).boundingRect(QRect(0, 0, maxText, 1000), Qt::TextWordWrap,
+                                                                      tr("Why: ") + tip.reason);
+        reasonHeight = r.height() + 8;
+        reasonWidth = r.width();
+    }
+    const int w = qBound(170, qMax(qMax(textRect.width(), headerWidth), reasonWidth) + 2 * kPadX, maxBubble);
+    const int maxH = height() - kFace - 3 * kMargin;
+    const int h = qMin(maxH, header.height() + 6 + textRect.height() + reasonHeight + 2 * kPadY);
 
     const QRectF face = faceRect();
     const qreal right = width() - kMargin;
     const qreal bottom = face.top() - 10;
     m_bubble = QRectF(right - w, bottom - h, w, h);
 
-    m_hold.setInterval(qMin(4500 + 45 * int(tip.text.size()), 9000));
+    m_hold.setInterval(qMin(4500 + 45 * int(tip.text.size()) + (debug ? 30 * int(tip.reason.size()) : 0), 15000));
     update();
 }
 
@@ -255,10 +284,10 @@ void CompanionWindow::onAppearFinished()
 void CompanionWindow::placeOnScreen()
 {
     m_placing = true;
-    const QPoint saved = QSettings().value(QLatin1String(kPosKey)).toPoint();
-    QScreen *screen = saved.isNull() ? nullptr : QGuiApplication::screenAt(saved + QPoint(width() / 2, height() / 2));
+    const QPoint anchor = QSettings().value(QLatin1String(kPosKey)).toPoint();
+    QScreen *screen = anchor.isNull() ? nullptr : QGuiApplication::screenAt(anchor - QPoint(width() / 2, height() / 2));
     if (screen) {
-        move(saved);
+        move(anchor - QPoint(width() - 1, height() - 1));
     } else if (QScreen *primary = QGuiApplication::primaryScreen()) {
         const QRect area = primary->availableGeometry();
         move(area.right() - width() - 8, area.bottom() - height() - 8);
@@ -389,8 +418,15 @@ void CompanionWindow::paintEvent(QPaintEvent *)
     // Body
     p.setFont(bodyFont(font()));
     p.setPen(c.text);
-    p.drawText(inner.adjusted(0, hfm.height() + 6, 0, 0), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
-               m_current->text);
+    const QRectF bodyRect = inner.adjusted(0, hfm.height() + 6, 0, 0);
+    QRectF used;
+    p.drawText(bodyRect, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_current->text, &used);
+    if (m_showReason) {
+        p.setFont(reasonFont(font()));
+        p.setPen(c.textSecondary);
+        p.drawText(bodyRect.adjusted(0, used.height() + 8, 0, 0), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
+                   tr("Why: ") + m_current->reason);
+    }
     p.restore();
 }
 
@@ -467,6 +503,8 @@ void CompanionWindow::contextMenuEvent(QContextMenuEvent *event)
     end->setEnabled(m_sessionActive);
     menu.addSeparator();
     menu.addAction(tr("Open SMILE"), this, &CompanionWindow::openMainWindowRequested);
+    if (AppSettings::instance().debugMode())
+        menu.addAction(tr("Open debug view"), this, &CompanionWindow::debugViewRequested);
     menu.exec(event->globalPos());
     if (m_state == State::Shown && !m_hover)
         m_hold.start(2000);
@@ -476,5 +514,5 @@ void CompanionWindow::moveEvent(QMoveEvent *event)
 {
     QWidget::moveEvent(event);
     if (!m_placing && isVisible())
-        QSettings().setValue(QLatin1String(kPosKey), pos());
+        QSettings().setValue(QLatin1String(kPosKey), geometry().bottomRight());
 }

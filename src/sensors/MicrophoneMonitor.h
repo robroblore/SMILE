@@ -33,7 +33,15 @@ public:
     qint64 currentRunMs() const { return m_inRun ? m_runMs : 0; } // talking without a real pause
     qint64 longestRunMs() const { return qMax(m_longestRunMs, currentRunMs()); }
 
-    // When on, audio is gathered into ~25 s chunks and chunkReady is emitted.
+    // Live readings for the debug view
+    double levelDb() const { return m_levelDb; }
+    double noiseFloorDb() const { return m_noiseFloorDb; }
+    double thresholdDb() const { return m_thresholdDb; }
+    // Syllables per second of speech over the last ~10 s (local pace estimate)
+    double syllablesPerSecond() const;
+    int recentSpeechMs() const;
+
+    // When on, audio is gathered into ~9-15 s chunks and chunkReady is emitted.
     void setChunking(bool on);
 
 signals:
@@ -77,6 +85,15 @@ private:
     qint64 m_runMs = 0;
     qint64 m_pauseMs = 0;
     qint64 m_longestRunMs = 0;
+
+    // Syllable detection on the energy envelope (30 ms frames)
+    double m_levelDb = -90;
+    double m_thresholdDb = -50;
+    QVector<double> m_envelope;      // last 11 frames, dB
+    qint64 m_frameIndex = 0;
+    qint64 m_lastSyllable = -100;
+    QVector<quint8> m_window;        // last ~10 s: bit0 speaking, bit1 syllable
+    int m_windowPos = 0;
 
     // Chunking for transcription
     bool m_chunking = false;

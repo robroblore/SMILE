@@ -21,6 +21,12 @@ struct FaceFrame {
     float faceHeight = 0; // face height / frame height (distance to camera)
     float detectMs = 0;
 
+    // Local expression model (FER+), when available
+    bool expressionValid = false;
+    float neutral = 0, happiness = 0, surprise = 0, negative = 0; // probabilities
+    // Smile score 0..100: a real smile ~100, a neutral engaged face ~45
+    float smileScore() const { return 100.f * happiness + 45.f * neutral + 50.f * surprise + 15.f * negative; }
+
     static FaceFrame from(const FaceDetector::Face &face, const QSize &frame, qint64 timestampMs, float detectMs);
 };
 

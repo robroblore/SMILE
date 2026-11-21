@@ -10,6 +10,7 @@
 #include <QMediaDevices>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSlider>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -36,9 +37,7 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
 
     // ---- AI coach
     auto *aiCard = new Card(tr("AI coach"));
-    QLabel *aiIntro = Ui::label(tr("SMILE uses Together AI to read your expression and posture from camera "
-                                   "snapshots, transcribe your speech for filler words, and write your feedback."),
-                                "secondary");
+    QLabel *aiIntro = Ui::label(tr("SMILE uses Together AI to understand your face and speech."), "secondary");
     aiIntro->setWordWrap(true);
     aiCard->body()->addWidget(aiIntro);
     aiCard->body()->addWidget(m_keyStatus);
@@ -67,75 +66,69 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     cloud->setChecked(settings.cloudAnalysis());
     aiCard->body()->addWidget(new OptionRow(
         tr("Analyse with AI"),
-        tr("Send a small camera snapshot every few seconds and short speech clips to Together AI over HTTPS "
-           "while a session runs. SMILE stores nothing in the cloud."),
+        tr("Sends snapshots and short speech clips while a session runs. Nothing is stored."),
         cloud));
     connect(cloud, &QAbstractButton::toggled, &settings, &AppSettings::setCloudAnalysis);
 
-    // ---- Coaching: how quickly SMILE speaks up
+    // ---- Coaching: how picky SMILE is, and how smart
     auto *coachCard = new Card(tr("Coaching"));
-    QLabel *coachIntro = Ui::label(tr("How quickly SMILE reacts. The face tracker on your computer watches ~15 times a "
-                                      "second; the cloud AI looks every few seconds and straight away when the tracker "
-                                      "notices a change."),
-                                   "secondary");
-    coachIntro->setWordWrap(true);
-    coachCard->body()->addWidget(coachIntro);
-    auto *sensRow = new QHBoxLayout;
-    sensRow->setSpacing(4);
-    auto *sensGroup = new QButtonGroup(this);
-    const QStringList names = {tr("Relaxed"), tr("Balanced"), tr("Responsive")};
-    for (int i = 0; i < names.size(); ++i) {
-        auto *b = new QPushButton(names[i]);
-        b->setObjectName(QStringLiteral("segment"));
-        b->setCheckable(true);
-        b->setCursor(Qt::PointingHandCursor);
-        b->setChecked(int(settings.sensitivity()) == i);
-        sensGroup->addButton(b, i);
-        sensRow->addWidget(b);
-    }
-    sensRow->addStretch();
-    coachCard->body()->addLayout(sensRow);
-    m_sensitivityText = Ui::label(QString(), "secondary");
+    coachCard->body()->setSpacing(0);
+    auto addControl = [](Card *card, const QString &title, const QString &hint, QWidget *control) {
+        card->body()->addWidget(new OptionRow(title, hint, control));
+    };
+    auto makeLevel = [this](int value, std::function<void(int)> set) {
+        auto *slider = new QSlider(Qt::Horizontal);
+        slider->setRange(1, 5);
+        slider->setPageStep(1);
+        slider->setTickPosition(QSlider::TicksBelow);
+        slider->setFixedWidth(180);
+        slider->setValue(value);
+        connect(slider, &QSlider::valueChanged, this, [this, set](int v) {
+            set(v);
+            describeSensitivity();
+        });
+        return slider;
+    };
+    addControl(coachCard, tr("Real meetings: how picky"), tr("Left: only big problems. Right: everything."),
+               makeLevel(settings.liveLevel(), [](int v) { AppSettings::instance().setLiveLevel(v); }));
+    addControl(coachCard, tr("Training: how picky"), tr("Training is stricter so you improve faster."),
+               makeLevel(settings.trainingLevel(), [](int v) { AppSettings::instance().setTrainingLevel(v); }));
+    m_sensitivityText = Ui::label(QString(), "caption");
     m_sensitivityText->setWordWrap(true);
+    m_sensitivityText->setContentsMargins(10, 0, 10, 6);
     coachCard->body()->addWidget(m_sensitivityText);
-    connect(sensGroup, &QButtonGroup::idClicked, this, [this](int id) {
-        AppSettings::instance().setSensitivity(AppSettings::Sensitivity(id));
-        describeSensitivity();
-    });
     describeSensitivity();
 
+    auto *brain = new QComboBox;
+    brain->addItem(tr("Standard · cheapest"));
+    brain->addItem(tr("Enhanced · ~5× cost"));
+    brain->addItem(tr("Maximum · ~15× cost"));
+    brain->setCurrentIndex(settings.intelligence());
+    brain->setToolTip(tr("Smarter models read your face and speech more carefully but cost more and answer a bit slower. "
+                         "Conversations in the simulation always use the fast model."));
+    connect(brain, &QComboBox::currentIndexChanged, &settings, &AppSettings::setIntelligence);
+    addControl(coachCard, tr("AI intelligence"), tr("Smarter costs more."), brain);
+
     auto *interval = new QSpinBox;
-    interval->setRange(2, 30);
+    interval->setRange(1, 30);
     interval->setSuffix(tr(" s"));
     interval->setValue(settings.snapshotIntervalSeconds());
-    interval->setButtonSymbols(QAbstractSpinBox::NoButtons);
     interval->setFixedWidth(80);
     interval->setAlignment(Qt::AlignRight);
-    auto *intervalRow = new QHBoxLayout;
-    intervalRow->setContentsMargins(10, 4, 10, 4);
-    auto *intervalText = new QVBoxLayout;
-    intervalText->setSpacing(1);
-    intervalText->addWidget(Ui::label(tr("Cloud AI looks at least every")));
-    intervalText->addWidget(Ui::label(tr("Shorter is more responsive; each look costs about $0.0001."), "secondary"));
-    intervalRow->addLayout(intervalText, 1);
-    intervalRow->addWidget(interval);
-    coachCard->body()->addLayout(intervalRow);
     connect(interval, &QSpinBox::valueChanged, &settings, &AppSettings::setSnapshotIntervalSeconds);
+    addControl(coachCard, tr("AI looks at you every"), tr("Shorter reacts faster (≈ $0.0001 a look)."), interval);
 
     auto *advance = new ToggleSwitch;
     advance->setChecked(settings.autoAdvance());
     connect(advance, &QAbstractButton::toggled, &settings, &AppSettings::setAutoAdvance);
-    coachCard->body()->addWidget(new OptionRow(tr("Move to the next section automatically"),
-                                               tr("When you start talking about the next section's topic, SMILE moves on "
-                                                  "(and resets the section timer). You can always move on by hand."),
-                                               advance));
+    addControl(coachCard, tr("Move to the next section by itself"), tr("When you start on its topic."), advance);
 
     // ---- Appearance
     auto *lookCard = new Card(tr("Appearance"));
     auto *lookRow = new QHBoxLayout;
     lookRow->setSpacing(4);
     auto *lookGroup = new QButtonGroup(this);
-    const QStringList looks = {tr("System"), tr("Light (white & blue)"), tr("Dark")};
+    const QStringList looks = {tr("System"), tr("Light (white && blue)"), tr("Dark")};
     for (int i = 0; i < looks.size(); ++i) {
         auto *b = new QPushButton(looks[i]);
         b->setObjectName(QStringLiteral("segment"));
@@ -158,26 +151,26 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     debugToggle->setChecked(settings.debugMode());
     debugCard->body()->addWidget(new OptionRow(
         tr("Debug mode"),
-        tr("Show face-tracking points on the camera preview, explain why every tip fired, and open a live view of "
-           "everything SMILE detects when a session starts."),
+        tr("Face-tracking points, why each tip fired, live detection view."),
         debugToggle));
     connect(debugToggle, &QAbstractButton::toggled, &settings, &AppSettings::setDebugMode);
+    auto *hapticCard = new Card(tr("Mouse haptics"));
     auto *hapticToggle = new ToggleSwitch;
     hapticToggle->setChecked(settings.hapticFeedbackEnabled());
-    debugCard->body()->addWidget(new OptionRow(
+    hapticCard->body()->addWidget(new OptionRow(
         tr("Simulate mouse haptics"),
         tr("Log a simulated mouse pulse when a warning appears during a meeting."),
         hapticToggle));
     connect(hapticToggle, &QAbstractButton::toggled, &settings, &AppSettings::setHapticFeedbackEnabled);
     auto *physicalHaptics = new ToggleSwitch;
     physicalHaptics->setChecked(settings.physicalHapticsEnabled());
-    debugCard->body()->addWidget(new OptionRow(
+    hapticCard->body()->addWidget(new OptionRow(
         tr("Play mouse haptics"),
         tr("Pulse an MX Master 4 for visible meeting warnings. Requires the SMILE plugin in Logi Options+. "
            "Overrides simulation while on."),
         physicalHaptics));
     connect(physicalHaptics, &QAbstractButton::toggled, &settings, &AppSettings::setPhysicalHapticsEnabled);
-    auto addHapticSetting = [debugCard](const QString &title, const QString &description, QWidget *control) {
+    auto addHapticSetting = [hapticCard](const QString &title, const QString &description, QWidget *control) {
         auto *row = new QHBoxLayout;
         row->setContentsMargins(10, 4, 10, 4);
         auto *labels = new QVBoxLayout;
@@ -187,7 +180,7 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
         row->addLayout(labels, 1);
         control->setAccessibleName(title);
         row->addWidget(control);
-        debugCard->body()->addLayout(row);
+        hapticCard->body()->addLayout(row);
     };
     auto *hapticDuration = new QSpinBox;
     hapticDuration->setRange(0, 120);
@@ -264,12 +257,13 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     auto *layout = new QVBoxLayout(content);
     layout->setContentsMargins(36, 28, 36, 28);
     layout->setSpacing(12);
-    layout->addWidget(Ui::pageHeader(tr("Settings"), tr("AI, camera, microphone and privacy.")));
+    layout->addWidget(Ui::pageHeader(tr("Settings"), tr("Make SMILE yours.")));
     layout->addWidget(aiCard);
     layout->addWidget(coachCard);
     layout->addWidget(lookCard);
     layout->addWidget(cameraCard);
     layout->addWidget(micCard);
+    layout->addWidget(hapticCard);
     layout->addWidget(debugCard);
     layout->addStretch();
 
@@ -320,19 +314,19 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
 
 void SettingsPage::describeSensitivity()
 {
-    const AppSettings::Thresholds t = AppSettings::instance().thresholds();
-    m_sensitivityText->setText(tr("Tips after: tense or cold expression %1 s · looking to the side %2 s · face out of frame %3 s · bad posture %4 s · "
-                                  "speaking over %5 wpm · %6 filler words a minute · talking %7 s without a pause. "
-                                  "The same tip waits %8 s before repeating; at least %9 s between tips in a meeting.")
-                                   .arg(t.noSmileSeconds)
-                                   .arg(t.lookAwaySeconds)
-                                   .arg(t.faceMissingSeconds)
-                                   .arg(t.postureSeconds)
-                                   .arg(t.fastWpm)
-                                   .arg(t.fillersPerMinute)
-                                   .arg(t.monologueSeconds)
-                                   .arg(t.repeatCooldownSeconds)
-                                   .arg(t.meetingGapSeconds));
+    const AppSettings &settings = AppSettings::instance();
+    auto line = [](const AppSettings::Thresholds &t) {
+        return tr("face hidden %1 s · looking away %2 s · slouching %3 s · %4 fillers/min · tips ≥ %5 s apart")
+            .arg(t.faceCoveredSeconds)
+            .arg(t.lookAwaySeconds)
+            .arg(t.postureSeconds)
+            .arg(t.fillersPerMinute)
+            .arg(t.meetingGapSeconds);
+    };
+    const AppSettings::Thresholds live = AppSettings::thresholdsFor(settings.liveLevel());
+    AppSettings::Thresholds training = AppSettings::thresholdsFor(settings.trainingLevel());
+    training.meetingGapSeconds = training.trainingGapSeconds;
+    m_sensitivityText->setText(tr("Meetings: %1\nTraining: %2").arg(line(live), line(training)));
 }
 
 void SettingsPage::refreshKeyStatus()
@@ -351,8 +345,7 @@ void SettingsPage::refreshKeyStatus()
         text = tr("Using the key from the .env file.");
         break;
     case AppSettings::KeySource::None:
-        text = tr("No key yet. SMILE still times your agenda, checks lighting and spots long monologues; "
-                  "add a key for smile, posture and speech coaching.");
+        text = tr("No key yet: add one for full coaching.");
         colour = c.textSecondary;
         break;
     }

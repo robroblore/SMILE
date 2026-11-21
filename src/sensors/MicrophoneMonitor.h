@@ -34,6 +34,10 @@ public:
     qint64 longestRunMs() const { return qMax(m_longestRunMs, currentRunMs()); }
     int pauseCount() const { return m_pauses; } // natural pauses (0.4-2.5 s) between phrases
 
+    // Background noise: true while the room is too noisy to listen reliably
+    bool isNoisy() const { return m_noisy; }
+    double speechBandRatio() const { return m_bandRatio; }
+
     // Live readings for the debug view
     double levelDb() const { return m_levelDb; }
     double noiseFloorDb() const { return m_noiseFloorDb; }
@@ -58,6 +62,7 @@ signals:
     void speakingChanged(bool speaking);
     void chunkReady(const QByteArray &wav, int durationMs, int speechMs);
     void utteranceReady(const QByteArray &wav, int speechMs);
+    void noisyChanged(bool noisy);
     void activeChanged(bool active);
     void errorOccurred(const QString &message);
 
@@ -81,6 +86,13 @@ private:
     QVector<float> m_input;
     double m_resamplePos = 0.0;
     QVector<float> m_frame; // 30 ms at 16 kHz
+
+    // Speech-band filter (biquad band-pass ~300-3400 Hz at 16 kHz)
+    double m_bx1 = 0, m_bx2 = 0, m_by1 = 0, m_by2 = 0;
+    double m_bandRatio = 0;
+    bool m_noisy = false;
+    int m_noisyMs = 0;
+    int m_quietMs = 0;
 
     // Voice activity
     double m_noiseFloorDb = -55.0;

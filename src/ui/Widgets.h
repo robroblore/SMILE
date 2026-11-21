@@ -209,6 +209,8 @@ class OptionRow : public QWidget
 public:
     OptionRow(const QString &title, const QString &description, QAbstractButton *control,
               bool controlOnLeft = false, QWidget *parent = nullptr);
+    // Any other control (slider, combo box, spin box): clicking the row does nothing
+    OptionRow(const QString &title, const QString &description, QWidget *control, QWidget *parent = nullptr);
     QAbstractButton *control() const { return m_control; }
 
 protected:

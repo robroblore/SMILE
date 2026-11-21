@@ -386,6 +386,7 @@ void SpeechTipSource::tip(const QString &key, TipCategory category, TipSeverity 
     t.severity = severity;
     t.text = text;
     t.reason = reason;
+    t.key = key;
     t.source = name();
     if (severity == TipSeverity::Warning && isWarningActive(key))
         t.warningId = key;

@@ -297,19 +297,50 @@ void MicrophoneMonitor::processInput(const QByteArray &data)
 
 void MicrophoneMonitor::processFrame(const float *samples, int count)
 {
-    double energy = 0;
-    for (int i = 0; i < count; ++i)
-        energy += double(samples[i]) * samples[i];
+    // Band-pass coefficients: centre ~1 kHz, Q ~0.35 => roughly 300-3400 Hz
+    static const double b0 = 0.35346, b2 = -0.35346, a1 = -1.19465, a2 = 0.29308;
+    double energy = 0, bandEnergy = 0;
+    for (int i = 0; i < count; ++i) {
+        const double x = samples[i];
+        energy += x * x;
+        const double y = b0 * x + b2 * m_bx2 - a1 * m_by1 - a2 * m_by2;
+        m_bx2 = m_bx1;
+        m_bx1 = x;
+        m_by2 = m_by1;
+        m_by1 = y;
+        bandEnergy += y * y;
+    }
     const double rms = std::sqrt(energy / count);
     const double db = 20.0 * std::log10(rms + 1e-9);
+    // Speech carries most of its energy in the 300-3400 Hz band; hum, fans and
+    // rumble don't. Used to tell a voice from background noise.
+    m_bandRatio = energy > 1e-12 ? bandEnergy / energy : 0.0;
 
     // Adaptive noise floor: drops quickly, rises slowly (only while quiet)
     if (db < m_noiseFloorDb)
         m_noiseFloorDb = 0.8 * m_noiseFloorDb + 0.2 * db;
     else if (!m_speaking)
         m_noiseFloorDb += 0.003 * (db - m_noiseFloorDb);
-    const double threshold = qMax(m_noiseFloorDb + 10.0, -50.0);
-    const bool voiced = db > threshold;
+    const double threshold = qMax(m_noiseFloorDb + 12.0, -48.0);
+    // Speech needs energy in the speech band; very clear, loud sounds count too.
+    // Tuned so hum and white noise are ignored while words are still caught.
+    const bool voiced = (db > threshold && m_bandRatio > 0.45) || (db > threshold + 10.0 && m_bandRatio > 0.25);
+
+    // Persistent background noise (noise floor high for several seconds)
+    if (m_noiseFloorDb > -40.0) {
+        m_noisyMs += kFrameMs;
+        m_quietMs = 0;
+    } else {
+        m_quietMs += kFrameMs;
+        m_noisyMs = 0;
+    }
+    if (!m_noisy && m_noisyMs > 4000) {
+        m_noisy = true;
+        emit noisyChanged(true);
+    } else if (m_noisy && m_quietMs > 3000) {
+        m_noisy = false;
+        emit noisyChanged(false);
+    }
     m_levelDb = db;
     m_thresholdDb = threshold;
 
@@ -324,6 +355,15 @@ void MicrophoneMonitor::processFrame(const float *samples, int count)
     }
     if (m_speaking != wasSpeaking)
         emit speakingChanged(m_speaking);
+
+    // While told to ignore input (the avatar is talking), don't count anything
+    if (m_ignore) {
+        if (m_speaking) {
+            m_speaking = false;
+            emit speakingChanged(false);
+        }
+        return;
+    }
 
     // Talk-time statistics
     if (m_speaking) {
@@ -398,7 +438,7 @@ void MicrophoneMonitor::processFrame(const float *samples, int count)
         } else if (m_inUtt) {
             m_utt += frame;
             m_uttSilenceMs += kFrameMs;
-            if (m_uttSilenceMs >= 1100) {
+            if (m_uttSilenceMs >= 750) { // quick turn-taking: reply soon after you stop
                 if (m_uttSpeechMs >= 600)
                     emit utteranceReady(wavFromPcm16(m_utt, kRate), m_uttSpeechMs);
                 discardUtterance();

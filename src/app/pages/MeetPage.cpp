@@ -4,6 +4,8 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
+#include <QSlider>
 #include <QVBoxLayout>
 
 #include "app/SessionRunWidget.h"
@@ -19,19 +21,19 @@ QString describe(TipCategory category)
 {
     switch (category) {
     case TipCategory::Timing:
-        return MeetPage::tr("When a point runs over its time.");
+        return MeetPage::tr("A section runs over.");
     case TipCategory::Posture:
-        return MeetPage::tr("Posture, restless movement, distracting hand gestures.");
+        return MeetPage::tr("Posture, fidgeting, covered face.");
     case TipCategory::Expression:
-        return MeetPage::tr("A tense or cold expression, long looks away from the camera.");
+        return MeetPage::tr("Expression and eye contact.");
     case TipCategory::Speech:
-        return MeetPage::tr("Filler words, pace, volume, talking for too long.");
+        return MeetPage::tr("Fillers, pace, volume.");
     case TipCategory::Appearance:
-        return MeetPage::tr("Collar, framing and lighting.");
+        return MeetPage::tr("Collar, framing, light.");
     case TipCategory::Content:
-        return MeetPage::tr("When you move on without saying a key point.");
+        return MeetPage::tr("A key point was skipped.");
     case TipCategory::Language:
-        return MeetPage::tr("Swearing or unprofessional words.");
+        return MeetPage::tr("Unprofessional words.");
     case TipCategory::General:
         break;
     }
@@ -51,9 +53,7 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
     auto *sessionCard = new Card(tr("Meeting"));
     auto *idleLayout = new QHBoxLayout(m_idle);
     idleLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel *idleText = Ui::label(tr("When you start, SMILE minimizes and stays out of your way. "
-                                    "The companion pops up briefly only when something needs attention."),
-                                 "secondary");
+    QLabel *idleText = Ui::label(tr("SMILE hides and only pops up when something needs fixing."), "secondary");
     idleText->setWordWrap(true);
     auto *preview = new QPushButton(tr("Preview a tip"));
     preview->setIcon(Icons::icon(Icons::Icon::Eye, Theme::colors().text, 14));
@@ -77,8 +77,32 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
     m_agendaRows->setSpacing(0);
     agendaCard->body()->addLayout(m_agendaRows);
 
-    // Tips card
-    auto *tipsCard = new Card(tr("What the companion may tell you"));
+    // Options: the things you may want to change right before a meeting
+    AppSettings &settings = AppSettings::instance();
+    auto *optionsCard = new Card(tr("Options"));
+    optionsCard->body()->setSpacing(0);
+    auto *timer = new ToggleSwitch;
+    timer->setChecked(settings.sectionTimer());
+    connect(timer, &QAbstractButton::toggled, &settings, &AppSettings::setSectionTimer);
+    connect(&settings, &AppSettings::changed, timer, [timer] {
+        const QSignalBlocker block(timer);
+        timer->setChecked(AppSettings::instance().sectionTimer());
+    });
+    optionsCard->body()->addWidget(new OptionRow(tr("Section timer next to SMILE"), tr("Current section and time left."), timer));
+    auto *level = new QSlider(Qt::Horizontal);
+    level->setRange(1, 5);
+    level->setFixedWidth(160);
+    level->setValue(settings.liveLevel());
+    level->setToolTip(tr("1 = only big problems, 5 = picky"));
+    connect(level, &QSlider::valueChanged, &settings, &AppSettings::setLiveLevel);
+    connect(&settings, &AppSettings::changed, level, [level] {
+        const QSignalBlocker block(level);
+        level->setValue(AppSettings::instance().liveLevel());
+    });
+    optionsCard->body()->addWidget(new OptionRow(tr("How picky SMILE is"), tr("Left: only big problems. Right: everything."), level));
+
+    // Tips: which kinds the companion may show (collapsed, most people never change it)
+    auto *tipsCard = new Expander(tr("Tip types"), tr("Choose what SMILE may tell you."), -1, Theme::colors().accent, QString());
     tipsCard->body()->setSpacing(0);
     for (TipCategory category : allTipCategories()) {
         if (category == TipCategory::General)
@@ -89,22 +113,21 @@ MeetPage::MeetPage(SessionController *controller, TipSource *demoSource, QWidget
                 [this, category](bool on) { m_controller->setCategoryShownLive(category, on); });
         tipsCard->body()->addWidget(new OptionRow(categoryName(category), describe(category), toggle));
     }
-    tipsCard->body()->addSpacing(6);
-    tipsCard->body()->addWidget(Ui::divider());
-    tipsCard->body()->addSpacing(6);
     auto *demo = new ToggleSwitch;
     demo->setChecked(demoSource->isEnabled());
     connect(demo, &QAbstractButton::toggled, this, [demoSource](bool on) { demoSource->setEnabled(on); });
-    tipsCard->body()->addWidget(new OptionRow(
-        tr("Demo tips"),
-        tr("Random sample tips, for trying out the companion without a camera or microphone."), demo));
+    auto *demoRow = new OptionRow(tr("Demo tips"), tr("Random sample tips (debug)."), demo);
+    demoRow->setVisible(settings.debugMode());
+    connect(&settings, &AppSettings::changed, demoRow, [demoRow] { demoRow->setVisible(AppSettings::instance().debugMode()); });
+    tipsCard->body()->addWidget(demoRow);
 
     auto *content = new QWidget;
     auto *layout = new QVBoxLayout(content);
     layout->setContentsMargins(36, 28, 36, 28);
     layout->setSpacing(12);
-    layout->addWidget(Ui::pageHeader(tr("Meet"), tr("Private, glanceable coaching during the real thing.")));
+    layout->addWidget(Ui::pageHeader(tr("Meet"), tr("Coaching during the real meeting.")));
     layout->addWidget(sessionCard);
+    layout->addWidget(optionsCard);
     layout->addWidget(agendaCard);
     layout->addWidget(tipsCard);
     layout->addStretch();

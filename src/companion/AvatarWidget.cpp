@@ -104,7 +104,7 @@ void AvatarWidget::paintEvent(QPaintEvent *)
     const qreal speakPulse = m_state == State::Speaking ? m_face.mouthOpen * 0.06 : 0.0;
     QRadialGradient halo(centre, side * (0.55 + speakPulse));
     QColor a = c.accent;
-    a.setAlpha(c.dark ? 50 : 34);
+    a.setAlpha(c.dark ? 28 : 18);
     QColor b = c.accent;
     b.setAlpha(0);
     halo.setColorAt(0.0, a);

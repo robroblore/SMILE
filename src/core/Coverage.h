@@ -16,7 +16,7 @@ double score(const QString &keyPoint, const QSet<QString> &spokenKeywords);
 
 inline bool covered(const QString &keyPoint, const QSet<QString> &spokenKeywords)
 {
-    return score(keyPoint, spokenKeywords) >= 0.5;
+    return score(keyPoint, spokenKeywords) >= 0.4; // lenient: the AI judges meaning on top
 }
 
 } // namespace Coverage

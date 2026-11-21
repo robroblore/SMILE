@@ -11,6 +11,7 @@ class QPainter;
 namespace Icons {
 
 enum class Icon {
+    Home,      // house
     Training,  // presentation board
     PreMeet,   // checklist
     Meet,      // video camera

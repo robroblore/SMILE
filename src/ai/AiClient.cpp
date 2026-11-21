@@ -71,9 +71,11 @@ void AiClient::chat(const QString &system, const QString &user, int maxTokens, T
         return;
     }
     const QString model = AppSettings::instance().chatModel();
+    // Larger models think before answering: give them room
+    const bool big = model.contains(QLatin1String("Kimi"));
     QJsonObject body{
         {QStringLiteral("model"), model},
-        {QStringLiteral("max_tokens"), maxTokens},
+        {QStringLiteral("max_tokens"), big ? qMax(maxTokens, 8000) : maxTokens},
         {QStringLiteral("temperature"), 0.4},
         {QStringLiteral("messages"),
          QJsonArray{QJsonObject{{QStringLiteral("role"), QStringLiteral("system")}, {QStringLiteral("content"), system}},
@@ -109,13 +111,12 @@ void AiClient::analyzeImage(const QImage &image, const QString &prompt, JsonCall
     scaled.save(&buffer, "JPEG", 75);
     const QString dataUrl = QStringLiteral("data:image/jpeg;base64,") + QString::fromLatin1(jpeg.toBase64());
 
-    const QJsonObject body{
-        {QStringLiteral("model"), AppSettings::instance().visionModel()},
-        {QStringLiteral("max_tokens"), 400},
+    const QString visionModel = AppSettings::instance().visionModel();
+    const bool big = visionModel.contains(QLatin1String("Kimi"));
+    QJsonObject body{
+        {QStringLiteral("model"), visionModel},
+        {QStringLiteral("max_tokens"), big ? 4000 : 500},
         {QStringLiteral("temperature"), 0.1},
-        // Snapshot checks need a quick answer, not deliberation: with reasoning
-        // on, the model spends its whole budget thinking (and takes 3x longer).
-        {QStringLiteral("reasoning"), QJsonObject{{QStringLiteral("enabled"), false}}},
         {QStringLiteral("messages"),
          QJsonArray{QJsonObject{
              {QStringLiteral("role"), QStringLiteral("user")},
@@ -125,6 +126,11 @@ void AiClient::analyzeImage(const QImage &image, const QString &prompt, JsonCall
                                      {QStringLiteral("image_url"), QJsonObject{{QStringLiteral("url"), dataUrl}}}}}},
          }}},
     };
+
+    // Snapshot checks need a quick answer, not deliberation: with reasoning on,
+    // the standard model spends its whole budget thinking (and takes 3x longer).
+    if (!big)
+        body.insert(QStringLiteral("reasoning"), QJsonObject{{QStringLiteral("enabled"), false}});
 
     QNetworkReply *reply = post(QStringLiteral("/chat/completions"), body);
     connect(reply, &QNetworkReply::finished, this, [reply, done] {
@@ -208,7 +214,8 @@ void AiClient::chatMessages(const QJsonArray &messages, int maxTokens, TextCallb
         done(QString(), tr("No AI key set."));
         return;
     }
-    const QString model = AppSettings::instance().chatModel();
+    // The live conversation always uses the fast dialogue model (reply in ~1 s)
+    const QString model = AppSettings::instance().dialogueModel();
     QJsonObject body{{QStringLiteral("model"), model},
                      {QStringLiteral("max_tokens"), maxTokens},
                      {QStringLiteral("temperature"), 0.8},

@@ -72,6 +72,7 @@ QString VisionTipSource::analysisPrompt()
         "      // inappropriate = rude or offensive gestures only\n"
         "  \"hands_note\": \"what the hands are doing, a few words\",\n"
         "  \"touching_face\": true|false,\n"
+        "  \"face_covered\": true|false,        // hand, object or hair hiding part of the face\n"
         "  \"uncomfortable\": true|false,         // visibly uneasy: hunched, rubbing neck, squirming\n"
         "  \"lighting\": \"good\"|\"dark\"|\"backlit\"|\"uneven\",\n"
         "  \"clothing_messy\": true|false,\n"
@@ -106,6 +107,13 @@ void VisionTipSource::start()
     m_cloudAt = -1;
     m_cloudHistory.clear();
     m_coldSince = m_flatSince = m_sideSince = m_notesSince = m_faceMissingSince = m_postureSince = m_restlessSince = -1;
+    m_coveredSince = -1;
+    m_negativeEma = m_happyEma = 0;
+    m_neutralEma = 1;
+    m_coveredMs = m_smileScoreKnownMs = 0;
+    m_smileScoreMs = 0;
+    m_heights.clear();
+    m_centres.clear();
     m_posture.clear();
     m_prevExpression.clear();
     m_prevSmile = -1;
@@ -200,6 +208,18 @@ void VisionTipSource::onFace(const FaceFrame &face)
     v.pitchBaseline = m_pitchBaseline;
     v.lookingLocal = std::abs(face.yaw) < kYawLimit && face.pitch - m_pitchBaseline < kPitchDownLimit
                      && face.pitch - m_pitchBaseline > -kPitchDownLimit;
+
+    // Local expression (FER+), smoothed over ~1 s
+    if (face.expressionValid) {
+        m_happyEma += 0.25f * (face.happiness - m_happyEma);
+        m_neutralEma += 0.25f * (face.neutral - m_neutralEma);
+        m_negativeEma += 0.25f * (face.negative - m_negativeEma);
+    }
+    // Framing consistency samples (about 2 per second)
+    if (m_heights.isEmpty() || now() % 500 < 70) {
+        m_heights.append(float(face.box.height()));
+        m_centres.append(float(face.box.center().x()));
+    }
 
     // Movement: how far the face centre travels, in face heights per second
     m_faceHeight = 0.9f * m_faceHeight + 0.1f * qMax(0.05f, float(face.box.height()));
@@ -401,14 +421,33 @@ void VisionTipSource::onTick()
     }
     v.gaze = gaze == 0 ? tr("camera") : gaze == 1 ? tr("notes (down)") : gaze == 2 ? tr("away") : QString();
 
-    // --- Expression: the cloud judges it; keep the last answer while fresh
-    const QString expression = fresh && face == 1 ? m_cloud.value(QLatin1String("expression")).toString() : QString();
-    const double exprConf = confidence("expression");
+    // --- Expression: the local model reads it continuously; the cloud adds
+    // nuance (relaxed vs flat, tense vs cold). Keep the last answer while fresh.
+    const bool localExpr = localFresh && face == 1 && m_face.expressionValid;
+    QString expression = fresh && face == 1 ? m_cloud.value(QLatin1String("expression")).toString() : QString();
+    double exprConf = confidence("expression");
+    if (localExpr) {
+        QString local = m_happyEma > 0.5f ? QStringLiteral("warm")
+                        : m_happyEma > 0.25f ? QStringLiteral("positive")
+                        : m_negativeEma > 0.45f ? QStringLiteral("tense")
+                                                : QStringLiteral("neutral_relaxed");
+        // The cloud can refine a neutral read (flat) or a negative one (cold)
+        if (local == QLatin1String("neutral_relaxed") && expression == QLatin1String("neutral_flat"))
+            local = expression;
+        if (local == QLatin1String("tense") && expression == QLatin1String("unapproachable"))
+            local = expression;
+        expression = local;
+        exprConf = qMax(m_happyEma, qMax(m_neutralEma, m_negativeEma));
+    }
     v.expression = expression;
     v.expressionConfidence = float(exprConf);
+    v.smileScore = localExpr ? float(qBound(0.0, 100.0 * m_happyEma + 45.0 * m_neutralEma + 15.0 * m_negativeEma, 100.0)) : -1.f;
     int smiling = -1;
     QString source = QStringLiteral("unknown");
-    if (face == 1) {
+    if (face == 1 && localExpr) {
+        smiling = m_happyEma > 0.4f ? 1 : 0;
+        source = QStringLiteral("local model");
+    } else if (face == 1) {
         if (fresh && (v.smileLocal < 0 || nowMs - m_cloudAt < 2500)) {
             smiling = m_cloud.value(QLatin1String("smiling")).toBool() ? 1 : 0;
             source = QStringLiteral("cloud");
@@ -459,7 +498,7 @@ void VisionTipSource::onTick()
         return since >= 0 ? nowMs - since : 0;
     };
     const bool coldNow = (expression == QLatin1String("tense") || expression == QLatin1String("unapproachable"))
-                         && exprConf >= kMinConfidence;
+                         && (localExpr || exprConf >= kMinConfidence);
     const bool flatNow = expression == QLatin1String("neutral_flat") && exprConf >= kMinConfidence;
     const qint64 missing = track(m_faceMissingSince, face == 0);
     const qint64 side = track(m_sideSince, gaze == 2);
@@ -470,10 +509,27 @@ void VisionTipSource::onTick()
     const qint64 cold = track(m_coldSince, coldNow);
     const qint64 flat = track(m_flatSince, flatNow);
     const qint64 restless = track(m_restlessSince, movement > kRestless);
+    // Face covered: the cloud sees a hand/object over it, or the local tracker
+    // lost the face while the cloud still sees the person
+    const bool cloudCovered = fresh && m_cloud.value(QLatin1String("face_covered")).toBool();
+    const bool trackerLost = localFresh && face == 0 && fresh && m_cloud.value(QLatin1String("face_visible")).toBool(true);
+    const qint64 covered = track(m_coveredSince, cloudCovered || trackerLost);
     v.faceMissingSeconds = int(missing / 1000);
     v.lookAwaySeconds = int(qMax(side, notes) / 1000);
     v.noSmileSeconds = int(qMax(cold, flat) / 1000);
 
+    if (covered >= t.faceCoveredSeconds * 1000LL) {
+        tip(QStringLiteral("covered"), TipCategory::Appearance, TipSeverity::Warning, tr("Your face is covered."),
+            cloudCovered ? tr("The cloud AI sees something over your face (%1). Covered for %2 s (limit %3 s).")
+                               .arg(m_cloud.value(QLatin1String("hands_note")).toString())
+                               .arg(secs(covered))
+                               .arg(t.faceCoveredSeconds)
+                         : tr("The face tracker lost your face while the cloud AI still sees you: something is in "
+                              "front of it. %1 s (limit %2 s).")
+                               .arg(secs(covered))
+                               .arg(t.faceCoveredSeconds));
+        note(QStringLiteral("covered"), tr("Face covered for %1 s").arg(secs(covered)));
+    }
     if (missing >= t.faceMissingSeconds * 1000LL)
         tip(QStringLiteral("noface"), TipCategory::Appearance, TipSeverity::Warning, tr("I can't see your face. Check your camera framing."),
             localFresh ? tr("The local face tracker (15 checks a second) has found no face for %1 s (limit %2 s).")
@@ -506,9 +562,13 @@ void VisionTipSource::onTick()
         tip(QStringLiteral("cold"), TipCategory::Expression, TipSeverity::Info,
             tense ? tr("You look a little tense. Relax your face and breathe.")
                   : tr("Soften your expression. A slight smile makes you more approachable."),
-            tr("The cloud AI has rated your expression \"%1\" for %2 s (limit %3 s, confidence %4). It said: \"%5\"")
-                .arg(pretty(expression)).arg(secs(cold)).arg(t.noSmileSeconds)
-                .arg(exprConf, 0, 'f', 2).arg(m_cloud.value(QLatin1String("observation")).toString()));
+            localExpr ? tr("The expression model on your computer has read \"%1\" for %2 s (limit %3 s): negative %4, "
+                           "smile %5, neutral %6.")
+                            .arg(pretty(expression)).arg(secs(cold)).arg(t.noSmileSeconds)
+                            .arg(m_negativeEma, 0, 'f', 2).arg(m_happyEma, 0, 'f', 2).arg(m_neutralEma, 0, 'f', 2)
+                      : tr("The cloud AI has rated your expression \"%1\" for %2 s (limit %3 s, confidence %4). It said: \"%5\"")
+                            .arg(pretty(expression)).arg(secs(cold)).arg(t.noSmileSeconds)
+                            .arg(exprConf, 0, 'f', 2).arg(m_cloud.value(QLatin1String("observation")).toString()));
         note(QStringLiteral("expression"), tr("Looked %1 for %2 s").arg(pretty(expression)).arg(secs(cold)));
         m_coldSince = nowMs;
     }
@@ -577,6 +637,22 @@ void VisionTipSource::onTick()
         }
         if (movement > kRestless)
             m_restlessMs += kTickMs;
+        if (covered > 0)
+            m_coveredMs += kTickMs;
+        // Smile score: a real smile ~100, a neutral engaged face ~45, and a
+        // little lower when you look away for long
+        if (localExpr) {
+            double score = 100.0 * m_happyEma + 45.0 * m_neutralEma + 15.0 * m_negativeEma;
+            score += 50.0 * qMax(0.0, 1.0 - m_happyEma - m_neutralEma - m_negativeEma); // surprise
+            if (gaze == 2)
+                score *= 0.85;
+            m_smileScoreMs += qBound(0.0, score, 100.0) * kTickMs;
+            m_smileScoreKnownMs += kTickMs;
+        } else if (!expression.isEmpty()) {
+            m_smileScoreMs += (expression == QLatin1String("warm") ? 95.0 : expression == QLatin1String("positive") ? 75.0
+                               : expression.startsWith(QLatin1String("neutral")) ? 45.0 : 20.0) * kTickMs;
+            m_smileScoreKnownMs += kTickMs;
+        }
         // Facial engagement in context: a good expression, attention on the
         // camera (or notes), and being in frame. No smile is required.
         const double exprPart = expression.isEmpty() ? 0.75 : expressionScore(expression) / 100.0;
@@ -599,6 +675,8 @@ bool VisionTipSource::isWarningActive(const QString &warningId) const
         return false;
     if (warningId == QLatin1String("noface"))
         return m_faceMissingSince >= 0;
+    if (warningId == QLatin1String("covered"))
+        return m_coveredSince >= 0;
     if (!AppSettings::instance().cloudAnalysis() || !cloudFresh())
         return false;
     if (warningId == QLatin1String("posture"))
@@ -620,6 +698,7 @@ void VisionTipSource::tip(const QString &key, TipCategory category, TipSeverity 
     t.severity = severity;
     t.text = text;
     t.reason = reason;
+    t.key = key;
     t.source = name();
     if (severity == TipSeverity::Warning)
         t.warningId = key;
@@ -640,6 +719,25 @@ QVariantMap VisionTipSource::reportData() const
     QVariantList events;
     for (const QVariantMap &e : m_events)
         events << e;
+    // Framing consistency: steady distance (face size) and position
+    int framing = -1;
+    if (m_heights.size() >= 10) {
+        auto stats = [](const QList<float> &v, double *mean) {
+            double m = 0, var = 0;
+            for (float x : v)
+                m += x;
+            m /= v.size();
+            for (float x : v)
+                var += (x - m) * (x - m);
+            *mean = m;
+            return std::sqrt(var / v.size());
+        };
+        double meanH = 0, meanX = 0;
+        const double sdH = stats(m_heights, &meanH);
+        const double sdX = stats(m_centres, &meanX);
+        const double cv = meanH > 0 ? sdH / meanH : 0;
+        framing = int(qBound(0.0, 100.0 - cv * 250.0 - sdX * 200.0 - std::abs(meanX - 0.5) * 80.0, 100.0));
+    }
     return {
         {QStringLiteral("snapshots"), m_cloudChecks},
         {QStringLiteral("trackedSeconds"), int(m_trackedMs / 1000)},
@@ -652,6 +750,11 @@ QVariantMap VisionTipSource::reportData() const
         {QStringLiteral("engagementPct"), m_trackedMs > 0 ? int(qRound(100.0 * m_engagementMs / double(m_trackedMs))) : -1},
         {QStringLiteral("uprightPct"), pct(m_cloudUpright, m_cloudFaces)},
         {QStringLiteral("restlessPct"), pct(m_restlessMs, m_faceMs)},
+        {QStringLiteral("coveredSeconds"), int(m_coveredMs / 1000)},
+        {QStringLiteral("coveredPct"), pct(m_coveredMs, m_trackedMs)},
+        {QStringLiteral("smileScore"), m_smileScoreKnownMs > 0 ? int(qRound(m_smileScoreMs / double(m_smileScoreKnownMs))) : -1},
+        {QStringLiteral("framingScore"), framing},
+        {QStringLiteral("localExpression"), m_smileScoreKnownMs > 0 && m_camera->faceTrackingAvailable()},
         {QStringLiteral("discomfortChecks"), m_discomfortChecks},
         {QStringLiteral("postures"), toMap(m_postures)},
         {QStringLiteral("expressions"), toMap(m_expressions)},

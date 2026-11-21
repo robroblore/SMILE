@@ -41,10 +41,22 @@ public:
     int snapshotIntervalSeconds() const;
     void setSnapshotIntervalSeconds(int seconds);
 
-    // How quickly SMILE speaks up. Each preset maps to the thresholds below.
-    enum class Sensitivity { Relaxed, Balanced, Responsive };
-    Sensitivity sensitivity() const;
-    void setSensitivity(Sensitivity s);
+    // How strict / talkative SMILE is, 1 (relaxed) .. 5 (strict). Live meetings
+    // and training have separate levels; training is stricter by default.
+    int liveLevel() const;
+    void setLiveLevel(int level);
+    int trainingLevel() const;
+    void setTrainingLevel(int level);
+    // Set while a training-type session (rehearsal, practice, simulation) runs
+    void setTrainingActive(bool training) { m_trainingActive = training; }
+    bool trainingActive() const { return m_trainingActive; }
+
+    // AI intelligence: 0 standard (fast, cheapest), 1 enhanced, 2 maximum
+    int intelligence() const;
+    void setIntelligence(int level);
+    // How much the avatar steps in about your behaviour in simulations: 0 off .. 3 strict
+    int avatarIntervention() const;
+    void setAvatarIntervention(int level);
 
     struct Thresholds {
         int noSmileSeconds;      // no smile for this long -> "Try smiling more"
@@ -57,8 +69,11 @@ public:
         int repeatCooldownSeconds; // before the same tip can repeat
         int meetingGapSeconds;   // minimum quiet time between pop-ups in a meeting
         int trainingGapSeconds;  // ... and in training
+        int faceCoveredSeconds;  // hand or object over the face
     };
+    // For the session type that's running (training or live)
     Thresholds thresholds() const;
+    static Thresholds thresholdsFor(int level);
 
     bool debugMode() const;
     void setDebugMode(bool on);
@@ -78,6 +93,7 @@ public:
     QString avatarVoice() const;
     void setAvatarVoice(const QString &voice);
     QString speechModel() const;
+    QString dialogueModel() const; // fast model for the live simulation conversation
     bool hapticFeedbackEnabled() const;
     void setHapticFeedbackEnabled(bool on);
     bool physicalHapticsEnabled() const;
@@ -108,5 +124,6 @@ signals:
 
 private:
     AppSettings() = default;
+    bool m_trainingActive = false;
     QString keyFromDotEnv() const;
 };

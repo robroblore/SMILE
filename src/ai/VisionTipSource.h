@@ -79,6 +79,10 @@ private:
     qint64 m_faceMissingSince = -1;
     qint64 m_postureSince = -1;
     qint64 m_restlessSince = -1;
+    qint64 m_coveredSince = -1;   // hand/object over the face
+    float m_negativeEma = 0;      // local expression model, smoothed
+    float m_happyEma = 0;
+    float m_neutralEma = 0;
     QString m_posture;
     QString m_prevExpression;
     int m_prevSmile = -1;
@@ -104,6 +108,11 @@ private:
     double m_expressionScoreMs = 0;
     qint64 m_relaxedMs = 0;
     qint64 m_restlessMs = 0;
+    qint64 m_coveredMs = 0;
+    double m_smileScoreMs = 0;   // local smile score, time-weighted
+    qint64 m_smileScoreKnownMs = 0;
+    QList<float> m_heights;      // face size samples, for framing consistency
+    QList<float> m_centres;
     double m_engagementMs = 0;
     int m_notesGlances = 0;
     int m_cloudChecks = 0, m_cloudUpright = 0, m_cloudFaces = 0;

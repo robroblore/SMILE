@@ -85,14 +85,24 @@ QString AppSettings::apiBaseUrl() const
     return value("ai/baseUrl", QStringLiteral("https://api.together.xyz/v1")).toString();
 }
 
+// Models per intelligence level. Standard is the fastest and cheapest; higher
+// levels use larger models for vision, reviews and structuring. The live
+// simulation conversation always uses a fast model so replies stay quick.
 QString AppSettings::visionModel() const
 {
-    return value("ai/visionModel", QStringLiteral("nvidia/NVIDIA-Nemotron-3.5-Super-VL")).toString();
+    static const char *models[] = {"nvidia/NVIDIA-Nemotron-3.5-Super-VL", "moonshotai/Kimi-K3", "moonshotai/Kimi-K3.1-Pro"};
+    return value("ai/visionModel", QString::fromLatin1(models[intelligence()])).toString();
 }
 
 QString AppSettings::chatModel() const
 {
-    return value("ai/chatModel", QStringLiteral("openai/gpt-oss-120b")).toString();
+    static const char *models[] = {"openai/gpt-oss-120b", "moonshotai/Kimi-K3", "moonshotai/Kimi-K3.1-Pro"};
+    return value("ai/chatModel", QString::fromLatin1(models[intelligence()])).toString();
+}
+
+QString AppSettings::dialogueModel() const
+{
+    return value("ai/dialogueModel", QStringLiteral("openai/gpt-oss-120b")).toString();
 }
 
 QString AppSettings::transcribeModel() const
@@ -157,37 +167,81 @@ void AppSettings::setMicrophoneId(const QByteArray &id)
 
 int AppSettings::snapshotIntervalSeconds() const
 {
-    return qBound(2, value("ai/snapshotSeconds", 3).toInt(), 30);
+    return qBound(1, value("ai/snapshotSeconds", 2).toInt(), 30);
 }
 
 void AppSettings::setSnapshotIntervalSeconds(int seconds)
 {
-    store("ai/snapshotSeconds", qBound(2, seconds, 30));
+    store("ai/snapshotSeconds", qBound(1, seconds, 30));
     emit changed();
 }
 
-AppSettings::Sensitivity AppSettings::sensitivity() const
+int AppSettings::liveLevel() const
 {
-    return Sensitivity(qBound(0, value("coach/sensitivity", 1).toInt(), 2));
+    return qBound(1, value("coach/liveLevel", 3).toInt(), 5);
 }
 
-void AppSettings::setSensitivity(Sensitivity s)
+void AppSettings::setLiveLevel(int level)
 {
-    store("coach/sensitivity", int(s));
+    store("coach/liveLevel", qBound(1, level, 5));
     emit changed();
+}
+
+int AppSettings::trainingLevel() const
+{
+    return qBound(1, value("coach/trainingLevel", 4).toInt(), 5);
+}
+
+void AppSettings::setTrainingLevel(int level)
+{
+    store("coach/trainingLevel", qBound(1, level, 5));
+    emit changed();
+}
+
+int AppSettings::intelligence() const
+{
+    return qBound(0, value("ai/intelligence", 0).toInt(), 2);
+}
+
+void AppSettings::setIntelligence(int level)
+{
+    store("ai/intelligence", qBound(0, level, 2));
+    emit changed();
+}
+
+int AppSettings::avatarIntervention() const
+{
+    return qBound(0, value("simulation/intervention", 2).toInt(), 3);
+}
+
+void AppSettings::setAvatarIntervention(int level)
+{
+    store("simulation/intervention", qBound(0, level, 3));
+    emit changed();
+}
+
+AppSettings::Thresholds AppSettings::thresholdsFor(int level)
+{
+    const int i = qBound(1, level, 5) - 1;
+    //                         relaxed  …          strict
+    static const int cold[] = {45, 30, 20, 12, 8};
+    static const int look[] = {12, 8, 6, 4, 3};
+    static const int face[] = {10, 6, 4, 3, 2};
+    static const int posture[] = {20, 12, 8, 5, 4};
+    static const int wpm[] = {190, 180, 175, 168, 162};
+    static const int fillers[] = {8, 6, 4, 3, 2};
+    static const int monologue[] = {240, 180, 120, 90, 60};
+    static const int repeat[] = {150, 90, 60, 40, 25};
+    static const int meetingGap[] = {90, 60, 40, 25, 15}; // level 3: about one tip per 40 s
+    static const int trainingGap[] = {40, 25, 15, 10, 6};
+    static const int covered[] = {5, 3, 2, 2, 1};
+    return {cold[i],      look[i],       face[i],       posture[i],        wpm[i],   fillers[i],
+            monologue[i], repeat[i],     meetingGap[i], trainingGap[i],    covered[i]};
 }
 
 AppSettings::Thresholds AppSettings::thresholds() const
 {
-    switch (sensitivity()) {
-    case Sensitivity::Relaxed:
-        return {40, 10, 8, 15, 185, 6, 180, 120, 40, 20};
-    case Sensitivity::Responsive:
-        return {10, 3, 3, 4, 165, 3, 90, 30, 6, 4};
-    case Sensitivity::Balanced:
-        break;
-    }
-    return {20, 6, 5, 8, 175, 4, 120, 60, 15, 8};
+    return thresholdsFor(m_trainingActive ? trainingLevel() : liveLevel());
 }
 
 bool AppSettings::sectionTimer() const

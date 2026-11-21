@@ -7,6 +7,7 @@
 #include <QButtonGroup>
 #include <QCloseEvent>
 #include <QHBoxLayout>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
@@ -22,6 +23,9 @@
 #include "app/pages/SettingsPage.h"
 #include "app/pages/TrainingPage.h"
 #include "ai/AiClient.h"
+#include "ai/CoverageJudge.h"
+#include "app/SessionHistory.h"
+#include "app/pages/HomePage.h"
 #include "ai/SpeechTipSource.h"
 #include "ai/VisionTipSource.h"
 #include "companion/CompanionClient.h"
@@ -56,13 +60,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_controller->addTipSource(speech);
     // What you say is checked against the key points of each section
     connect(speech, &SpeechTipSource::transcribed, m_controller, &SessionController::addTranscript);
+    // ...and judged by meaning (which key points you got across, which section you're on)
+    auto *judge = new CoverageJudge(m_ai, m_controller, this);
+    connect(speech, &SpeechTipSource::transcribed, judge, &CoverageJudge::judge);
     auto *demo = new DemoTipSource;
     m_controller->addTipSource(demo);
 
-    auto *training = new TrainingPage(m_controller, m_ai, m_mic);
+    auto *home = new HomePage;
+    auto *training = new TrainingPage(m_controller, m_ai, m_mic, m_camera);
     auto *preMeet = new PreMeetPage(m_camera, m_ai);
     auto *meet = new MeetPage(m_controller, demo);
     auto *postMeet = new PostMeetPage(m_ai);
+    m_pages->addWidget(home);
     m_pages->addWidget(training);
     m_pages->addWidget(preMeet);
     m_pages->addWidget(meet);
@@ -87,6 +96,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(quit, &QAction::triggered, this, &QWidget::close);
     addAction(quit);
 
+    connect(home, &HomePage::openTraining, this, [this] { showPage(TrainingPageIndex); });
+    connect(home, &HomePage::openSetupCheck, this, [this] { showPage(PreMeetPageIndex); });
+    connect(home, &HomePage::openMeet, this, [this] { showPage(MeetPageIndex); });
+    connect(home, &HomePage::openResults, this, [this] { showPage(PostMeetPageIndex); });
     connect(preMeet, &PreMeetPage::goToMeetRequested, this, [this] { showPage(MeetPageIndex); });
     connect(meet, &MeetPage::previewTipRequested, this, &MainWindow::previewTip);
 
@@ -145,6 +158,8 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
     connect(m_controller, &SessionController::finished, this, [this, postMeet](const SessionReport &report) {
+        // Every session goes into the local history (Home page: progress, streaks, badges)
+        SessionHistory::instance().add(report, PostMeetPage::evaluate(report, QJsonObject()));
         if (report.mode == SessionMode::Practice || report.mode == SessionMode::Simulation)
             return; // shown in the Training tab that ran them
         postMeet->showReport(report);
@@ -157,7 +172,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_companion, &CompanionClient::endSessionRequested, m_controller, &SessionController::stop);
     connect(m_companion, &CompanionClient::debugViewRequested, this, &MainWindow::showDebug);
 
-    showPage(TrainingPageIndex);
+    showPage(HomePageIndex);
 }
 
 MainWindow::~MainWindow()
@@ -286,8 +301,9 @@ QWidget *MainWindow::buildNavigation()
     auto *group = new QButtonGroup(this);
     group->setExclusive(true);
     const QList<std::pair<Icons::Icon, QString>> items = {
+        {Icons::Icon::Home, tr("Home")},
         {Icons::Icon::Training, tr("Training")},
-        {Icons::Icon::PreMeet, tr("Pre-Meet")},
+        {Icons::Icon::PreMeet, tr("Setup check")},
         {Icons::Icon::Meet, tr("Meet")},
         {Icons::Icon::PostMeet, tr("Results")},
     };

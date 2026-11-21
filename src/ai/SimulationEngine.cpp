@@ -8,6 +8,7 @@
 #include "core/LiveSignals.h"
 #include "core/SessionController.h"
 #include "core/TimeFormat.h"
+#include "app/pages/PostMeetPage.h"
 #include "sensors/AudioPlayer.h"
 #include "sensors/MicrophoneMonitor.h"
 
@@ -37,6 +38,10 @@ SimulationEngine::SimulationEngine(AiClient *ai, MicrophoneMonitor *mic, Session
     m_watch.setInterval(1000);
     connect(&m_watch, &QTimer::timeout, this, &SimulationEngine::checkInterrupt);
     connect(m_mic, &MicrophoneMonitor::utteranceReady, this, &SimulationEngine::onUtterance);
+    connect(m_controller, &SessionController::tipLogged, this, [this](const Tip &tip) {
+        if (m_running && m_controller->mode() == SessionMode::Simulation)
+            onBehaviourTip(tip);
+    });
     connect(m_player, &AudioPlayer::finished, this, [this] {
         if (!m_running)
             return;
@@ -77,10 +82,11 @@ QString SimulationEngine::systemPrompt(const SimulationConfig &c)
                "practising for the real thing.\nAudience and context: %3\nThe user's objectives: %4\n"
                "The user's prepared material (you have NOT seen it in the meeting; use it only to ask relevant, "
                "probing questions):\n%5\n\n%6\n\n"
-               "Behave like a real person: keep each turn short (1-3 sentences, at most 45 words), ask one question "
-               "at a time, react to what the user actually said, refer to their words, ask follow-ups when an answer "
-               "is weak, and don't repeat questions. Never coach or give feedback during the meeting; stay in "
-               "character. Spoken style, no lists or markdown.\n"
+               "This simulation trains the user's DELIVERY and BODY LANGUAGE under realistic conditions; the topic is "
+               "the vehicle. Keep the conversation natural and moving so they keep talking, as in a real meeting. "
+               "Behave like a real person: keep each turn short (1-2 sentences, at most 30 words), ask one question "
+               "at a time, react to what the user actually said, and don't repeat questions. Never coach or give "
+               "feedback; stay in character. Spoken style, no lists or markdown.\n"
                "Reply with ONLY JSON: {\"say\": \"what you say\", \"intent\": \"greeting|question|challenge|clarify|"
                "interrupt|objection|evidence|elaborate|agree|wrap_up\", \"mood\": \"friendly|neutral|impressed|"
                "skeptical|confused|concerned\", \"end\": false}. Set \"end\" to true only on your final closing line.")
@@ -107,6 +113,9 @@ void SimulationEngine::start(const SimulationConfig &config)
     m_busy = false;
     m_interruptions = 0;
     m_turns = 0;
+    m_interventions = 0;
+    m_lastIntervention.invalidate();
+    m_pendingIntervention.clear();
     m_clock.start();
 
     // Run a normal session alongside, so camera and voice are analysed too
@@ -131,6 +140,12 @@ void SimulationEngine::listen()
 {
     if (!m_running)
         return;
+    if (!m_pendingIntervention.isEmpty()) {
+        const QString line = m_pendingIntervention;
+        m_pendingIntervention.clear();
+        intervene(line);
+        return;
+    }
     m_mic->setIgnoreInput(false);
     emit stateChanged(AvatarWidget::State::Listening);
     emit statusChanged(m_micAcquired ? tr("Your turn. Speak, then pause when you're done.") : tr("Your turn. Type your answer below."));
@@ -241,6 +256,67 @@ void SimulationEngine::say(const QString &text, const QString &mood, const QStri
                 });
 }
 
+void SimulationEngine::onBehaviourTip(const Tip &tip)
+{
+    emit liveTip(tip); // always shown on screen during training
+
+    const int level = AppSettings::instance().avatarIntervention();
+    if (level == 0 || m_ending)
+        return;
+    // What the avatar steps in about, by level (1 light, 2 balanced, 3 strict)
+    static const QHash<QString, int> minLevel = {
+        {QStringLiteral("covered"), 1},     {QStringLiteral("noface"), 1},   {QStringLiteral("restless"), 2},
+        {QStringLiteral("hands"), 2},       {QStringLiteral("hands-inappropriate"), 2},
+        {QStringLiteral("posture"), 2},     {QStringLiteral("uncomfortable"), 2}, {QStringLiteral("touching"), 2},
+        {QStringLiteral("cold"), 3},        {QStringLiteral("flat"), 3},     {QStringLiteral("eyes"), 3},
+        {QStringLiteral("notes"), 3},       {QStringLiteral("fillers"), 3},  {QStringLiteral("pace"), 3},
+        {QStringLiteral("quiet"), 3},       {QStringLiteral("monologue"), 3},
+    };
+    static const QHash<QString, QStringList> lines = {
+        {QStringLiteral("covered"), {tr("Sorry, I can't see your face, something's in the way."), tr("Your hand is covering your face; I can't see you.")}},
+        {QStringLiteral("noface"), {tr("I've lost you on camera, are you still there?"), tr("I can't see you anymore.")}},
+        {QStringLiteral("restless"), {tr("You're moving around a lot, it's a bit distracting."), tr("Could you settle a little? You're moving quite a bit.")}},
+        {QStringLiteral("hands"), {tr("Your hands are a bit distracting."), tr("I'm watching your hands more than listening, sorry.")}},
+        {QStringLiteral("hands-inappropriate"), {tr("Hm, that gesture wasn't very professional.")}},
+        {QStringLiteral("posture"), {tr("You seem a bit slumped, everything alright?"), tr("You look quite far from the camera, is your posture okay?")}},
+        {QStringLiteral("uncomfortable"), {tr("You seem a bit uneasy. Take your time.")}},
+        {QStringLiteral("touching"), {tr("You keep touching your face, are you nervous?")}},
+        {QStringLiteral("cold"), {tr("You look a little tense. Relax, it's just a conversation.")}},
+        {QStringLiteral("flat"), {tr("You seem a bit flat, are you enjoying this?")}},
+        {QStringLiteral("eyes"), {tr("Are you still with me? You seem to be looking elsewhere.")}},
+        {QStringLiteral("notes"), {tr("Try not to read; just talk to me.")}},
+        {QStringLiteral("fillers"), {tr("Take your time, there's no need for all the ums.")}},
+        {QStringLiteral("pace"), {tr("Could you slow down a little? It's hard to follow.")}},
+        {QStringLiteral("quiet"), {tr("Sorry, could you speak up a bit?")}},
+        {QStringLiteral("monologue"), {tr("Let me stop you there for a second.")}},
+    };
+    const QString id = tip.key;
+    if (!minLevel.contains(id) || level < minLevel.value(id))
+        return;
+    const int spacing = level >= 3 ? 15000 : 25000;
+    if (m_lastIntervention.isValid() && m_lastIntervention.elapsed() < spacing)
+        return;
+    const QStringList options = lines.value(id);
+    const QString line = options.value(QRandomGenerator::global()->bounded(int(options.size())));
+    m_lastIntervention.restart();
+    // Face problems interrupt straight away; others wait for a natural moment
+    const bool urgent = id == QLatin1String("covered") || id == QLatin1String("noface");
+    if (!m_busy && !m_player->isPlaying() && (urgent || m_mic->currentUtteranceMs() == 0)) {
+        m_mic->discardUtterance();
+        intervene(line);
+    } else {
+        m_pendingIntervention = line;
+    }
+}
+
+void SimulationEngine::intervene(const QString &line)
+{
+    ++m_interventions;
+    m_history.append(msg(QStringLiteral("assistant"),
+                         QStringLiteral("{\"say\": \"%1\", \"intent\": \"interrupt\"}").arg(line)));
+    say(line, QStringLiteral("concerned"), QStringLiteral("interrupt"), false);
+}
+
 void SimulationEngine::checkInterrupt()
 {
     if (!m_running || m_busy || m_player->isPlaying())
@@ -327,26 +403,28 @@ void SimulationEngine::finish()
 void SimulationEngine::evaluate(const SessionReport &report)
 {
     const QString system = QStringLiteral(
-        "You evaluate a practice meeting between a user and a simulated participant. Judge only the user. Be fair, "
-        "specific and constructive. Reply with ONLY JSON:\n"
-        "{\"score\": 0-100, \"summary\": \"one or two sentences\",\n"
-        " \"answers\": 0-100, \"evidence\": 0-100, \"composure\": 0-100, \"clarity\": 0-100,\n"
-        " \"handled_well\": [\"moments the user handled well, quoting them briefly\"],\n"
-        " \"struggled\": [\"questions or objections the user struggled with, and why\"],\n"
-        " \"objectives\": [{\"objective\": \"...\", \"met\": true|false}],\n"
-        " \"improvements\": [\"3 concrete things to do better next time\"]}");
-    const QString user = QStringLiteral("Meeting: %1, the participant played %2, difficulty %3.\nUser's objectives: %4\n"
-                                        "Interruptions: %5. Duration: %6.\n\nConversation:\n%7")
-                             .arg(m_config.meetingType, m_config.role, m_config.difficulty, m_config.objectives)
+        "You review a practice meeting whose purpose is to train the user's DELIVERY and BODY LANGUAGE (posture, "
+        "keeping the face visible, calm movement, eye contact, expression, pace, filler words, composure when "
+        "challenged), not the business content. Use the behaviour measurements and the conversation. Be specific "
+        "and concise. Reply with ONLY JSON:\n"
+        "{\"summary\": \"one or two sentences about how they came across\",\n"
+        " \"improvements\": [\"the 3 most important behaviour changes for next time\"],\n"
+        " \"highlights\": [\"up to 3 moments they handled well\"]}");
+    const QString user = QStringLiteral("Meeting: %1, the participant played %2, difficulty %3. Duration: %4. "
+                                        "The avatar interrupted %5 times and stepped in about behaviour %6 times.\n\n"
+                                        "Behaviour measurements:\n%7\n\nConversation:\n%8")
+                             .arg(m_config.meetingType, m_config.role, m_config.difficulty, formatDuration(elapsedSeconds()))
                              .arg(m_interruptions)
-                             .arg(formatDuration(elapsedSeconds()))
-                             .arg(m_transcript.join(QLatin1Char('\n')).left(15000));
+                             .arg(m_interventions)
+                             .arg(PostMeetPage::summarizeForAi(report))
+                             .arg(m_transcript.join(QLatin1Char('\n')).left(12000));
     m_ai->chat(system, user, 3000, [this, report](const QString &text, const QString &error) {
         QJsonObject evaluation = AiClient::extractJson(text);
         if (!error.isEmpty())
             evaluation.insert(QStringLiteral("error"), error);
         evaluation.insert(QStringLiteral("turns"), m_turns);
         evaluation.insert(QStringLiteral("interruptions"), m_interruptions);
+        evaluation.insert(QStringLiteral("interventions"), m_interventions);
         emit stateChanged(AvatarWidget::State::Idle);
         emit statusChanged(QString());
         emit finished(evaluation, report);

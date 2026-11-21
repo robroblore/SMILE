@@ -52,6 +52,16 @@ void paint(QPainter &p, const QRectF &rect, Icon icon, const QColor &color)
         p.drawRoundedRect(QRectF(6.9, 4.5, 2.2, 9), 0.6, 0.6);
         p.drawRoundedRect(QRectF(10.3, 6.5, 2.2, 7), 0.6, 0.6);
         break;
+    case Icon::Home: {
+        QPainterPath roof;
+        roof.moveTo(2.5, 8);
+        roof.lineTo(8, 3);
+        roof.lineTo(13.5, 8);
+        p.drawPath(roof);
+        p.drawRoundedRect(QRectF(4.5, 7, 7, 6.5), 0.8, 0.8);
+        p.drawLine(QPointF(8, 13.5), QPointF(8, 10.5));
+        break;
+    }
     case Icon::Info:
         p.drawEllipse(QPointF(8, 8), 6, 6);
         p.drawLine(QPointF(8, 7.3), QPointF(8, 11));

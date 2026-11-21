@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(SMILE
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "Smart Meeting Interactive Live Education"
     LANGUAGES CXX)
 
@@ -42,6 +42,8 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
     src/vision/FaceDetector.cpp
     src/vision/FaceFrame.h
     src/vision/FaceFrame.cpp
+    src/vision/ExpressionModel.h
+    src/vision/ExpressionModel.cpp
 
     # Sensors: camera and microphone (read-only, nothing is recorded)
     src/sensors/CameraMonitor.h
@@ -60,6 +62,8 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
     src/ai/SpeechTipSource.cpp
     src/ai/Structurer.h
     src/ai/Structurer.cpp
+    src/ai/CoverageJudge.h
+    src/ai/CoverageJudge.cpp
     src/ai/SimulationEngine.h
     src/ai/SimulationEngine.cpp
 
@@ -102,6 +106,10 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
     src/app/SessionRunWidget.cpp
     src/app/pages/TrainingPage.h
     src/app/pages/TrainingPage.cpp
+    src/app/pages/HomePage.cpp
+    src/app/pages/HomePage.h
+    src/app/SessionHistory.cpp
+    src/app/SessionHistory.h
     src/app/pages/PreMeetPage.h
     src/app/pages/PreMeetPage.cpp
     src/app/pages/MeetPage.h
@@ -116,6 +124,33 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
 qt_add_resources(smile models
     PREFIX /
     FILES models/face_detection_yunet_2023mar.onnx)
+
+# Local expression model: FER+ from the ONNX Model Zoo (35 MB, Apache-2.0),
+# downloaded once at configure time and embedded. Without it, SMILE uses the
+# cloud AI for expressions.
+set(SMILE_FERPLUS "${CMAKE_CURRENT_BINARY_DIR}/models/emotion-ferplus-8.onnx")
+if(NOT EXISTS "${SMILE_FERPLUS}")
+    file(DOWNLOAD
+        "https://media.githubusercontent.com/media/onnx/models/main/validated/vision/body_analysis/emotion_ferplus/model/emotion-ferplus-8.onnx"
+        "${SMILE_FERPLUS}"
+        EXPECTED_HASH SHA256=a2a2ba6a335a3b29c21acb6272f962bd3d47f84952aaffa03b60986e04efa61c
+        STATUS SMILE_FERPLUS_STATUS TLS_VERIFY ON)
+    list(GET SMILE_FERPLUS_STATUS 0 SMILE_FERPLUS_CODE)
+    if(NOT SMILE_FERPLUS_CODE EQUAL 0)
+        file(REMOVE "${SMILE_FERPLUS}")
+        message(WARNING "Could not download the expression model: ${SMILE_FERPLUS_STATUS}")
+    endif()
+endif()
+if(EXISTS "${SMILE_FERPLUS}")
+    message(STATUS "Local expression model: ON")
+    set_source_files_properties("${SMILE_FERPLUS}" PROPERTIES QT_RESOURCE_ALIAS emotion-ferplus-8.onnx)
+    qt_add_resources(smile expression
+        PREFIX /models
+        BIG_RESOURCES
+        FILES "${SMILE_FERPLUS}")
+else()
+    message(STATUS "Local expression model: OFF")
+endif()
 
 # ONNX Runtime for the local face tracker (optional). Only its headers are
 # needed to build: the library is loaded at runtime, so a missing library

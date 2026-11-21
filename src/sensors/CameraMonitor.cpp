@@ -11,11 +11,13 @@
 #endif
 
 #include "core/AppSettings.h"
+#include "vision/ExpressionModel.h"
 #include "vision/FaceDetector.h"
 
 namespace {
 constexpr int kMaxWidth = 960;      // plenty for preview and analysis
 constexpr int kDetectEveryMs = 66;  // ~15 face detections per second
+constexpr int kExpressionEveryMs = 180; // ~5 expression reads per second
 } // namespace
 
 // ---------------------------------------------------------------- FrameWorker
@@ -67,8 +69,33 @@ void FrameWorker::detect(const QImage &image)
     const QList<FaceDetector::Face> faces = m_detector->detect(image);
     const float ms = float(t.nsecsElapsed() / 1e6);
     FaceFrame f;
-    if (!faces.isEmpty())
+    if (!faces.isEmpty()) {
         f = FaceFrame::from(faces.first(), image.size(), m_clock.elapsed(), ms);
+        // Expression, a few times a second (kept between reads)
+        if (!m_expression)
+            m_expression = std::make_unique<ExpressionModel>();
+        if (m_expression->isAvailable()) {
+            if (!m_lastExpression.isValid() || m_lastExpression.elapsed() >= kExpressionEveryMs) {
+                m_lastExpression.restart();
+                ExpressionModel::Probabilities p{};
+                if (m_expression->classify(image, faces.first().box, &p)) {
+                    f.expressionValid = true;
+                    f.neutral = p[ExpressionModel::Neutral];
+                    f.happiness = p[ExpressionModel::Happiness];
+                    f.surprise = p[ExpressionModel::Surprise];
+                    f.negative = p[ExpressionModel::Sadness] + p[ExpressionModel::Anger] + p[ExpressionModel::Disgust]
+                                 + p[ExpressionModel::Fear] + p[ExpressionModel::Contempt];
+                    m_lastExpressionFrame = f;
+                }
+            } else if (m_lastExpressionFrame.expressionValid) {
+                f.expressionValid = true;
+                f.neutral = m_lastExpressionFrame.neutral;
+                f.happiness = m_lastExpressionFrame.happiness;
+                f.surprise = m_lastExpressionFrame.surprise;
+                f.negative = m_lastExpressionFrame.negative;
+            }
+        }
+    }
     f.timestampMs = m_clock.elapsed();
     f.detectMs = ms;
     emit faceReady(f);

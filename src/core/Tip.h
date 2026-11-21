@@ -29,6 +29,7 @@ struct Tip {
     QString text;
     QString source; // which module raised it, e.g. "timer" or "demo"
     QString reason; // why it fired, in plain words (shown in debug mode)
+    QString key;    // stable id of the kind of tip ("covered", "fillers", ...)
     QDateTime raisedAt = QDateTime::currentDateTime();
     QString warningId;
 };

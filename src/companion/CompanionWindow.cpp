@@ -462,14 +462,6 @@ void CompanionWindow::paintEvent(QPaintEvent *)
     const qreal scale = qMax<qreal>(0.0, faceT);
     p.setOpacity(m_docked ? 1.0 : clamp01(t * 2.0));
 
-    // Contact shadow
-    QRadialGradient shadow(QPointF(face.center().x(), face.bottom() + 2), face.width() * 0.45);
-    shadow.setColorAt(0.0, QColor(0, 0, 0, 70));
-    shadow.setColorAt(1.0, QColor(0, 0, 0, 0));
-    p.setPen(Qt::NoPen);
-    p.setBrush(shadow);
-    p.drawEllipse(QPointF(face.center().x(), face.bottom() + 2), face.width() * 0.42 * scale, 6 * scale);
-
     p.save();
     p.translate(face.center().x(), face.bottom() + bob * scale);
     p.scale(scale, scale);

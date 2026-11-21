@@ -9,6 +9,7 @@
 #include "companion/AvatarWidget.h"
 #include "core/Agenda.h"
 #include "core/SessionReport.h"
+#include "core/Tip.h"
 
 class AiClient;
 class AudioPlayer;
@@ -55,6 +56,7 @@ signals:
     void message(bool fromAvatar, const QString &text, const QString &intent);
     void statusChanged(const QString &status);
     void finished(const QJsonObject &evaluation, const SessionReport &report);
+    void liveTip(const Tip &tip); // behaviour feedback shown during the simulation
     void failed(const QString &error);
 
 private:
@@ -63,6 +65,8 @@ private:
     void respond(const QString &instruction);
     void say(const QString &text, const QString &mood, const QString &intent, bool last);
     void checkInterrupt();
+    void onBehaviourTip(const Tip &tip);
+    void intervene(const QString &line);
     void listen();
     void finish();
     void evaluate(const SessionReport &report);
@@ -82,4 +86,7 @@ private:
     bool m_micAcquired = false;
     int m_interruptions = 0;
     int m_turns = 0;
+    int m_interventions = 0;
+    QElapsedTimer m_lastIntervention;
+    QString m_pendingIntervention;
 };

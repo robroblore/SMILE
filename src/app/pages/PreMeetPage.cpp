@@ -39,7 +39,10 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     auto *cameraCard = new Card;
     cameraCard->setGraphicsEffect(nullptr); // no shadow effect: keeps the 30 fps preview smooth
     cameraCard->body()->setContentsMargins(16, 16, 16, 16);
-    m_preview->setOverlay(true);
+    // Tracking points only in debug mode; the red "fix this" boxes always show
+    m_preview->setOverlay(AppSettings::instance().debugMode());
+    connect(&AppSettings::instance(), &AppSettings::changed, m_preview,
+            [this] { m_preview->setOverlay(AppSettings::instance().debugMode()); });
     m_preview->setMinimumSize(560, 315);
     m_preview->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_preview->setFixedHeight(470);
@@ -58,9 +61,7 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     m_issues->setSpacing(6);
     cameraCard->body()->addLayout(m_issues);
 
-    QLabel *privacy = Ui::label(tr("Private preview: SMILE only looks and never changes the video others see. "
-                                   "Green points show what the face tracker sees; red boxes mark things to fix."),
-                                "secondary");
+    QLabel *privacy = Ui::label(tr("Only you see this. Red boxes mark things to fix."), "secondary");
     privacy->setWordWrap(true);
     cameraCard->body()->addWidget(privacy);
 
@@ -89,18 +90,7 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     }
 
     // ---- Collapsible: meeting options and technical details
-    auto *options = new Expander(tr("Meeting options and camera details"), QString(), -1, c.accent, QString());
-    auto *timer = new ToggleSwitch;
-    timer->setChecked(AppSettings::instance().sectionTimer());
-    connect(timer, &QAbstractButton::toggled, &AppSettings::instance(), &AppSettings::setSectionTimer);
-    connect(&AppSettings::instance(), &AppSettings::changed, timer, [timer] {
-        const QSignalBlocker block(timer);
-        timer->setChecked(AppSettings::instance().sectionTimer());
-    });
-    options->body()->addWidget(new OptionRow(tr("Section timer next to SMILE"),
-                                             tr("Keep a small timer by the avatar: current section, time and whether "
-                                                "you're on track."),
-                                             timer));
+    auto *options = new Expander(tr("Camera details"), QString(), -1, c.accent, QString());
     m_tech->setWordWrap(true);
     options->body()->addWidget(m_tech);
 
@@ -114,7 +104,7 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, QWidget *parent)
     auto *layout = new QVBoxLayout(content);
     layout->setContentsMargins(36, 28, 36, 28);
     layout->setSpacing(12);
-    layout->addWidget(Ui::pageHeader(tr("Pre-Meet"), tr("A one-minute check so you look your best before you join.")));
+    layout->addWidget(Ui::pageHeader(tr("Setup check"), tr("Look and sound your best in one minute.")));
     layout->addWidget(cameraCard);
     layout->addWidget(checklist);
     layout->addWidget(options);
@@ -211,7 +201,7 @@ void PreMeetPage::updateCameraState()
     m_checkButton->setEnabled(camera && cloud);
     m_checkButton->setToolTip(cloud ? QString() : tr("Add your AI key on the Settings page to use the automatic check."));
     if (!cloud && m_status->text().isEmpty())
-        m_status->setText(tr("Add an AI key in Settings and SMILE will check your framing, light, collar and background."));
+        m_status->setText(tr("Add an AI key in Settings for a full check."));
 }
 
 void PreMeetPage::showIssues(const QStringList &issues, const QStringList &good, const QString &advice)

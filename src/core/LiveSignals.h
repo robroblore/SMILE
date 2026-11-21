@@ -34,6 +34,7 @@ public:
         QString gaze;                 // camera, notes (down), away (side), screen
         float movement = 0;           // face movement, face-heights per second
         QString hands;                // cloud: resting, natural_gesture, distracting, ...
+        float smileScore = -1;        // local expression model, 0..100
         QJsonObject cloud;            // last cloud answer
         qint64 cloudAgeMs = -1;
         int cloudLatencyMs = 0;

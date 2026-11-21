@@ -23,4 +23,5 @@ struct SessionReport {
     Agenda points;
     QList<Tip> tips;
     QVariantMap sources; // TipSource name -> its reportData()
+    int offAgendaNudges = 0;
 };

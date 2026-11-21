@@ -48,12 +48,12 @@ void paint(QPainter &p, const QRectF &rect, const Face &face)
     const qreal cx = r.center().x();
     auto at = [&](qreal fx, qreal fy) { return QPointF(r.left() + w * fx, r.top() + h * fy); };
 
-    // Face: warm radial gradient, light from top-left, soft darker rim
-    QRadialGradient fill(at(0.36, 0.30), w * 0.80);
+    // Face: warm, clean gradient, light from top-left; no outline or dark rim
+    QRadialGradient fill(at(0.36, 0.30), w * 0.85);
     fill.setColorAt(0.0, QColor(0xFF, 0xEC, 0x99));
-    fill.setColorAt(0.55, QColor(0xFF, 0xD2, 0x3C));
-    fill.setColorAt(1.0, QColor(0xF2, 0xA9, 0x00));
-    p.setPen(QPen(QColor(0xE0, 0x96, 0x00, 160), w * 0.012));
+    fill.setColorAt(0.6, QColor(0xFF, 0xD5, 0x45));
+    fill.setColorAt(1.0, QColor(0xFF, 0xC8, 0x2A));
+    p.setPen(Qt::NoPen);
     p.setBrush(fill);
     p.drawEllipse(r.adjusted(w * 0.01, h * 0.01, -w * 0.01, -h * 0.01));
 
@@ -63,7 +63,15 @@ void paint(QPainter &p, const QRectF &rect, const Face &face)
     gloss.setColorAt(1.0, QColor(255, 255, 255, 0));
     p.setPen(Qt::NoPen);
     p.setBrush(gloss);
-    p.drawEllipse(at(0.34, 0.22), w * 0.28, h * 0.18);
+    {
+        // Keep the highlight inside the face so it never smudges the background
+        p.save();
+        QPainterPath faceClip;
+        faceClip.addEllipse(r.adjusted(w * 0.01, h * 0.01, -w * 0.01, -h * 0.01));
+        p.setClipPath(faceClip, Qt::IntersectClip);
+        p.drawEllipse(at(0.34, 0.22), w * 0.28, h * 0.18);
+        p.restore();
+    }
 
     // Cheeks (blush grows with the smile)
     const int blush = qBound(0, int(110 * face.smile), 110);

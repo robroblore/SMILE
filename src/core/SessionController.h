@@ -46,6 +46,10 @@ public:
 public slots:
     // Speech transcribed while the session runs; used to track key points.
     void addTranscript(const QString &text);
+    // From the AI coverage judge
+    void markKeyPointCovered(int section, int keyPoint);
+    void advanceTo(int index, const QString &reason);
+    void nudgeBackOnTrack();
     void start(SessionMode mode);
     // Run a session on a given agenda (one section to practise, a simulation)
     // without changing the saved agenda.
@@ -88,4 +92,5 @@ private:
     int m_previousIndex = -1;
     qint64 m_switchedAtMs = 0;
     bool m_heardSpeech = false;
+    int m_offAgendaNudges = 0;
 };

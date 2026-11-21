@@ -242,23 +242,23 @@ void CameraPreview::paintEvent(QPaintEvent *)
                             drawn.height());
         p.drawImage(target, m_frame);
 
+        auto map = [&target](const QPointF &n) {
+            return QPointF(target.left() + n.x() * target.width(), target.top() + n.y() * target.height());
+        };
+        // Objects flagged by the cloud AI: always shown, they are things to fix
+        for (const Marked &m : std::as_const(m_marked)) {
+            const QRectF r(map(m.box.topLeft()), map(m.box.bottomRight()));
+            p.setPen(QPen(c.critical, 2, Qt::DashLine));
+            p.setBrush(Qt::NoBrush);
+            p.drawRect(r);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0, 0, 0, 150));
+            const QRectF tag(r.left(), r.top() - 18, QFontMetrics(font()).horizontalAdvance(m.label) + 10, 18);
+            p.drawRect(tag);
+            p.setPen(Qt::white);
+            p.drawText(tag, Qt::AlignCenter, m.label);
+        }
         if (m_overlay) {
-            auto map = [&target](const QPointF &n) {
-                return QPointF(target.left() + n.x() * target.width(), target.top() + n.y() * target.height());
-            };
-            // Objects flagged by the cloud AI
-            for (const Marked &m : std::as_const(m_marked)) {
-                const QRectF r(map(m.box.topLeft()), map(m.box.bottomRight()));
-                p.setPen(QPen(c.critical, 2, Qt::DashLine));
-                p.setBrush(Qt::NoBrush);
-                p.drawRect(r);
-                p.setPen(Qt::NoPen);
-                p.setBrush(QColor(0, 0, 0, 150));
-                const QRectF tag(r.left(), r.top() - 18, QFontMetrics(font()).horizontalAdvance(m.label) + 10, 18);
-                p.drawRect(tag);
-                p.setPen(Qt::white);
-                p.drawText(tag, Qt::AlignCenter, m.label);
-            }
             if (m_face.found) {
                 const QColor tone = m_looking ? QColor(0x4C, 0xD9, 0x64) : QColor(0xFF, 0xA9, 0x4D);
                 const QRectF box(map(m_face.box.topLeft()), map(m_face.box.bottomRight()));
@@ -631,6 +631,14 @@ Card::Card(const QString &title, QWidget *parent)
 
 // ------------------------------------------------------------------- OptionRow
 
+OptionRow::OptionRow(const QString &title, const QString &description, QWidget *control, QWidget *parent)
+    : OptionRow(title, description, static_cast<QAbstractButton *>(nullptr), false, parent)
+{
+    setCursor(Qt::ArrowCursor);
+    control->setParent(this);
+    static_cast<QHBoxLayout *>(layout())->addWidget(control, 0, Qt::AlignVCenter);
+}
+
 OptionRow::OptionRow(const QString &title, const QString &description, QAbstractButton *control,
                      bool controlOnLeft, QWidget *parent)
     : QWidget(parent)
@@ -652,11 +660,14 @@ OptionRow::OptionRow(const QString &title, const QString &description, QAbstract
     auto *row = new QHBoxLayout(this);
     row->setContentsMargins(10, 8, 10, 8);
     row->setSpacing(14);
-    control->setParent(this);
-    if (controlOnLeft) {
+    if (!control) {
+        row->addLayout(text, 1);
+    } else if (controlOnLeft) {
+        control->setParent(this);
         row->addWidget(control, 0, Qt::AlignVCenter);
         row->addLayout(text, 1);
     } else {
+        control->setParent(this);
         row->addLayout(text, 1);
         row->addWidget(control, 0, Qt::AlignVCenter);
     }
@@ -664,13 +675,13 @@ OptionRow::OptionRow(const QString &title, const QString &description, QAbstract
 
 void OptionRow::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton && rect().contains(event->position().toPoint()) && m_control->isEnabled())
+    if (event->button() == Qt::LeftButton && rect().contains(event->position().toPoint()) && m_control && m_control->isEnabled())
         m_control->toggle();
 }
 
 void OptionRow::enterEvent(QEnterEvent *)
 {
-    m_hover = true;
+    m_hover = m_control != nullptr;
     update();
 }
 

@@ -5,6 +5,7 @@
 
 class AgendaEditor;
 class AiClient;
+class CameraMonitor;
 class MicrophoneMonitor;
 class QStackedWidget;
 class QLabel;
@@ -21,7 +22,8 @@ class TrainingPage : public QWidget
     Q_OBJECT
 
 public:
-    TrainingPage(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, QWidget *parent = nullptr);
+    TrainingPage(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, CameraMonitor *camera,
+                 QWidget *parent = nullptr);
 
 private:
     void setBulletMode(bool bullets);

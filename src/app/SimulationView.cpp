@@ -22,6 +22,7 @@
 #include "core/SessionController.h"
 #include "core/TimeFormat.h"
 #include "sensors/AudioPlayer.h"
+#include "sensors/CameraMonitor.h"
 #include "sensors/MicrophoneMonitor.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
@@ -36,44 +37,76 @@ struct MeetingType {
 QList<MeetingType> meetingTypes()
 {
     return {
+        {SimulationView::tr("Presentation"), SimulationView::tr("a senior stakeholder"),
+         SimulationView::tr("Leaders hearing your presentation; they ask questions and want clear answers.")},
+        {SimulationView::tr("Interview"), SimulationView::tr("the hiring manager"),
+         SimulationView::tr("A hiring manager assessing your experience and fit for the role.")},
+        {SimulationView::tr("Negotiation"), SimulationView::tr("a tough counterpart"),
+         SimulationView::tr("The other side of a deal: they push back on price, terms and timing.")},
         {SimulationView::tr("Business proposal"), SimulationView::tr("a critical investor"),
          SimulationView::tr("Investors deciding whether to fund the idea; they care about cost, risk and return.")},
-        {SimulationView::tr("Job interview"), SimulationView::tr("the hiring manager"),
-         SimulationView::tr("A hiring manager assessing skills, experience and fit for the role.")},
         {SimulationView::tr("Sales pitch"), SimulationView::tr("a busy prospective customer"),
          SimulationView::tr("A buyer comparing options with a tight budget.")},
-        {SimulationView::tr("Project update"), SimulationView::tr("a senior stakeholder"),
-         SimulationView::tr("Leadership checking progress, risks and next steps.")},
-        {SimulationView::tr("Performance review"), SimulationView::tr("your manager"),
-         SimulationView::tr("A manager discussing achievements and goals.")},
-        {SimulationView::tr("Board presentation"), SimulationView::tr("a demanding board member"),
-         SimulationView::tr("Board members focused on strategy, numbers and accountability.")},
     };
 }
 
-QLabel *bubble(const QString &text, bool fromAvatar, const QString &tag)
+QLabel *bubble(const QString &text, bool fromAvatar)
 {
     const Theme::Colors &c = Theme::colors();
-    QLabel *l = Ui::label(QString());
-    l->setTextFormat(Qt::RichText);
+    QLabel *l = Ui::label(text);
     l->setWordWrap(true);
     l->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    const QString head = tag.isEmpty() ? QString()
-                                       : QStringLiteral("<span style='font-size:8pt; color:%1; font-weight:600'>%2</span><br>")
-                                             .arg(Theme::css(fromAvatar ? c.accent : c.textSecondary), tag.toUpper().toHtmlEscaped());
-    l->setText(head + text.toHtmlEscaped());
     l->setStyleSheet(QStringLiteral("background: %1; color: %2; border-radius: 12px; padding: 8px 12px;")
                          .arg(Theme::css(fromAvatar ? c.button : c.accent), Theme::css(fromAvatar ? c.text : c.onAccent)));
-    l->setMaximumWidth(460);
+    l->setMaximumWidth(300);
     return l;
+}
+
+// A video tile: rounded box with a name label underneath
+QFrame *tile(QWidget *content, QLabel *name)
+{
+    auto *frame = new QFrame;
+    frame->setObjectName(QStringLiteral("card"));
+    auto *v = new QVBoxLayout(frame);
+    v->setContentsMargins(10, 10, 10, 10);
+    v->setSpacing(6);
+    v->addWidget(content, 1);
+    v->addWidget(name, 0, Qt::AlignLeft);
+    return frame;
 }
 } // namespace
 
-SimulationView::SimulationView(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, QWidget *parent)
+QWidget *SimulationView::segmented(const QStringList &labels, int checked, std::function<void(int)> onPick,
+                                   QList<QPushButton *> *out)
+{
+    auto *host = new QWidget;
+    auto *row = new QHBoxLayout(host);
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(4);
+    auto *group = new QButtonGroup(host);
+    for (int i = 0; i < labels.size(); ++i) {
+        auto *b = new QPushButton(labels[i]);
+        b->setObjectName(QStringLiteral("segment"));
+        b->setCheckable(true);
+        b->setChecked(i == checked);
+        b->setCursor(Qt::PointingHandCursor);
+        group->addButton(b, i);
+        row->addWidget(b);
+        if (out)
+            out->append(b);
+    }
+    row->addStretch();
+    connect(group, &QButtonGroup::idClicked, this, onPick);
+    return host;
+}
+
+SimulationView::SimulationView(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, CameraMonitor *camera,
+                               QWidget *parent)
     : QWidget(parent)
     , m_controller(controller)
     , m_ai(ai)
     , m_mic(mic)
+    , m_camera(camera)
     , m_engine(new SimulationEngine(ai, mic, controller, this))
     , m_stack(new QStackedWidget)
     , m_type(new QComboBox)
@@ -84,9 +117,12 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     , m_voice(new QComboBox)
     , m_setupNote(Ui::label(QString(), "secondary"))
     , m_avatar(new AvatarWidget)
-    , m_roleLabel(Ui::label(QString(), "cardTitle"))
+    , m_self(new CameraPreview)
+    , m_roleLabel(Ui::label(QString()))
     , m_status(Ui::label(QString(), "secondary"))
     , m_clock(Ui::label(QString(), "secondary"))
+    , m_feedback(Ui::label(QString()))
+    , m_noise(Ui::label(QString()))
     , m_meter(new LevelMeter)
     , m_chatScroll(new QScrollArea)
     , m_chat(new QVBoxLayout)
@@ -94,17 +130,15 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     , m_results(new QVBoxLayout)
 {
     const Theme::Colors &c = Theme::colors();
+    AppSettings &settings = AppSettings::instance();
 
     // ================= Setup =================
     auto *setupPage = new QWidget;
     auto *setupLayout = new QVBoxLayout(setupPage);
     setupLayout->setContentsMargins(0, 0, 0, 0);
-    setupLayout->setSpacing(12);
-
-    auto *setup = new Card(tr("Simulate a meeting"));
-    QLabel *intro = Ui::label(tr("Practise the real thing. SMILE joins as another participant: it asks questions, "
-                                 "challenges your arguments, asks for evidence and, on harder levels, interrupts. "
-                                 "Speak normally and pause when you've finished; it answers out loud."),
+    auto *setup = new Card;
+    QLabel *intro = Ui::label(tr("Practise with SMILE as the other person. It reacts to what you say and to how you "
+                                 "come across."),
                               "secondary");
     intro->setWordWrap(true);
     setup->body()->addWidget(intro);
@@ -116,66 +150,40 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     m_type->setEditable(true);
     for (const MeetingType &t : meetingTypes())
         m_type->addItem(t.name);
-    m_role->setPlaceholderText(tr("Who SMILE plays, e.g. a critical investor"));
-    m_audience->setPlaceholderText(tr("Who they are and what they care about"));
-    m_objectives->setPlaceholderText(tr("What you want to achieve, e.g. approval for a one-month pilot"));
-    m_objectives->setFixedHeight(64);
+    m_objectives->setPlaceholderText(tr("Optional: what you want to achieve"));
+    m_objectives->setFixedHeight(56);
     m_length->setSeconds(5 * 60);
     m_length->setFixedWidth(m_length->sizeHint().width());
     const QList<QPair<QString, QString>> voices = {
-        {tr("Michael (US, male)"), QStringLiteral("am_michael")}, {tr("Heart (US, female)"), QStringLiteral("af_heart")},
-        {tr("George (UK, male)"), QStringLiteral("bm_george")},   {tr("Emma (UK, female)"), QStringLiteral("bf_emma")},
-        {tr("Adam (US, male)"), QStringLiteral("am_adam")},       {tr("Bella (US, female)"), QStringLiteral("af_bella")},
+        {tr("Michael"), QStringLiteral("am_michael")}, {tr("Heart"), QStringLiteral("af_heart")},
+        {tr("George (UK)"), QStringLiteral("bm_george")}, {tr("Emma (UK)"), QStringLiteral("bf_emma")},
     };
     for (const auto &[label, id] : voices) {
         m_voice->addItem(label, id);
-        if (id == AppSettings::instance().avatarVoice())
+        if (id == settings.avatarVoice())
             m_voice->setCurrentIndex(m_voice->count() - 1);
     }
 
-    auto *levels = new QHBoxLayout;
-    levels->setSpacing(4);
-    auto *levelGroup = new QButtonGroup(this);
-    const QStringList levelNames = {tr("Beginner"), tr("Intermediate"), tr("Advanced")};
-    for (int i = 0; i < 3; ++i) {
-        auto *b = new QPushButton(levelNames[i]);
-        b->setObjectName(QStringLiteral("segment"));
-        b->setCheckable(true);
-        b->setCursor(Qt::PointingHandCursor);
-        levelGroup->addButton(b, i);
-        levels->addWidget(b);
-        m_levels << b;
-    }
-    m_levels[1]->setChecked(true);
-    levels->addStretch();
-    QLabel *levelHint = Ui::label(QString(), "secondary");
-    levelHint->setWordWrap(true);
-    auto describeLevel = [levelHint](int id) {
-        const QStringList text = {
-            tr("Friendly participant, predictable questions, supportive."),
-            tr("More challenging questions, requests for clarification, occasional interruptions."),
-            tr("High pressure: tough objections, unexpected questions, demands for evidence, interruptions."),
-        };
-        levelHint->setText(text.value(id));
-    };
-    describeLevel(1);
-    connect(levelGroup, &QButtonGroup::idClicked, this, describeLevel);
-
     int row = 0;
-    grid->addWidget(Ui::label(tr("Meeting")), row, 0);
+    grid->addWidget(Ui::label(tr("Type")), row, 0);
     grid->addWidget(m_type, row++, 1);
     grid->addWidget(Ui::label(tr("SMILE plays")), row, 0);
     grid->addWidget(m_role, row++, 1);
-    grid->addWidget(Ui::label(tr("Audience")), row, 0);
+    grid->addWidget(Ui::label(tr("Context")), row, 0);
     grid->addWidget(m_audience, row++, 1);
-    grid->addWidget(Ui::label(tr("Your objectives")), row, 0, Qt::AlignTop);
+    grid->addWidget(Ui::label(tr("Goal")), row, 0, Qt::AlignTop);
     grid->addWidget(m_objectives, row++, 1);
     grid->addWidget(Ui::label(tr("Difficulty")), row, 0);
-    grid->addLayout(levels, row++, 1);
-    grid->addWidget(levelHint, row++, 1);
+    grid->addWidget(segmented({tr("Beginner"), tr("Intermediate"), tr("Advanced")}, 1, [](int) {}, &m_levels), row++, 1);
+    grid->addWidget(Ui::label(tr("SMILE steps in")), row, 0);
+    auto *stepIn = segmented({tr("Never"), tr("Light"), tr("Balanced"), tr("Strict")}, settings.avatarIntervention(),
+                             [](int id) { AppSettings::instance().setAvatarIntervention(id); }, nullptr);
+    stepIn->setToolTip(tr("How often the avatar comments on your behaviour: a covered face, lots of movement, "
+                          "slouching… Strict also covers expression, eye contact and filler words."));
+    grid->addWidget(stepIn, row++, 1);
     auto *lengthRow = new QHBoxLayout;
     lengthRow->addWidget(m_length);
-    lengthRow->addSpacing(20);
+    lengthRow->addSpacing(16);
     lengthRow->addWidget(Ui::label(tr("Voice")));
     lengthRow->addWidget(m_voice);
     lengthRow->addStretch();
@@ -184,45 +192,72 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     setup->body()->addLayout(grid);
 
     auto *startRow = new QHBoxLayout;
-    auto *startButton = new QPushButton(tr("Start the meeting"));
+    auto *startButton = new QPushButton(tr("Start"));
     startButton->setObjectName(QStringLiteral("accent"));
     startButton->setIcon(Icons::icon(Icons::Icon::Play, c.onAccent, 14));
     startButton->setCursor(Qt::PointingHandCursor);
-    startButton->setMinimumHeight(38);
+    startButton->setMinimumSize(140, 40);
     m_setupNote->setWordWrap(true);
     startRow->addWidget(startButton);
     startRow->addSpacing(12);
+    startRow->addWidget(Ui::label(tr("Headphones work best."), "secondary"));
     startRow->addWidget(m_setupNote, 1);
     setup->body()->addLayout(startRow);
     setupLayout->addWidget(setup);
     setupLayout->addStretch();
 
-    // ================= Live meeting =================
+    // ================= Live meeting (video-call layout) =================
     auto *livePage = new QWidget;
     auto *live = new QHBoxLayout(livePage);
     live->setContentsMargins(0, 0, 0, 0);
     live->setSpacing(12);
 
-    auto *stage = new Card;
-    stage->setGraphicsEffect(nullptr); // smooth 60 fps animation
-    m_avatar->setMinimumSize(300, 300);
-    stage->body()->addWidget(m_roleLabel, 0, Qt::AlignHCenter);
-    stage->body()->addWidget(m_avatar, 1);
-    m_status->setAlignment(Qt::AlignHCenter);
-    m_status->setWordWrap(true);
-    stage->body()->addWidget(m_status);
-    auto *meterRow = new QHBoxLayout;
+    auto *left = new QVBoxLayout;
+    left->setSpacing(10);
+    auto *tiles = new QHBoxLayout;
+    tiles->setSpacing(10);
+    m_avatar->setMinimumSize(280, 240);
+    QFrame *avatarTile = tile(m_avatar, m_roleLabel);
+    m_self->setOverlay(false);
+    m_self->setMinimumSize(280, 240);
+    QFrame *selfTile = tile(m_self, Ui::label(tr("You")));
+    tiles->addWidget(avatarTile, 1);
+    tiles->addWidget(selfTile, 1);
+    left->addLayout(tiles, 1);
+
+    m_feedback->setWordWrap(true);
+    m_feedback->setMinimumHeight(42);
+    m_feedback->hide();
+    m_noise->setWordWrap(true);
+    m_noise->setText(tr("It's noisy around you. Put on headphones or move somewhere quieter."));
+    QColor noiseBg = c.orange;
+    noiseBg.setAlpha(40);
+    m_noise->setStyleSheet(QStringLiteral("background: %1; border: 1px solid %2; border-radius: 8px; padding: 8px 12px; font-weight: 600;")
+                               .arg(Theme::css(noiseBg), Theme::css(c.orange)));
+    m_noise->hide();
+    left->addWidget(m_feedback);
+    left->addWidget(m_noise);
+
+    auto *controls = new QHBoxLayout;
     QLabel *micIcon = Ui::label(QString());
     micIcon->setPixmap(Icons::icon(Icons::Icon::Mic, c.textSecondary, 16).pixmap(16, 16));
-    meterRow->addWidget(micIcon);
-    meterRow->addWidget(m_meter, 1);
-    meterRow->addWidget(m_clock);
-    stage->body()->addLayout(meterRow);
-    auto *endButton = new QPushButton(tr("End meeting"));
+    controls->addWidget(micIcon);
+    m_meter->setMaximumWidth(160);
+    controls->addWidget(m_meter);
+    controls->addSpacing(10);
+    m_status->setWordWrap(true);
+    controls->addWidget(m_status, 1);
+    controls->addWidget(m_clock);
+    auto *endButton = new QPushButton(tr("End"));
     endButton->setCursor(Qt::PointingHandCursor);
-    stage->body()->addWidget(endButton, 0, Qt::AlignHCenter);
+    endButton->setStyleSheet(QStringLiteral("QPushButton { background: %1; color: white; border: none; } QPushButton:hover { background: %2; }")
+                                 .arg(Theme::css(c.critical), Theme::css(c.critical.darker(110))));
+    controls->addWidget(endButton);
+    left->addLayout(controls);
+    live->addLayout(left, 3);
 
-    auto *conversation = new Card(tr("Conversation"));
+    auto *conversation = new Card(tr("Chat"));
+    conversation->setMaximumWidth(380);
     auto *chatHost = new QWidget;
     chatHost->setObjectName(QStringLiteral("page"));
     auto *chatOuter = new QVBoxLayout(chatHost);
@@ -234,17 +269,11 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     m_chatScroll->setWidgetResizable(true);
     m_chatScroll->setFrameShape(QFrame::NoFrame);
     m_chatScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_chatScroll->setMinimumHeight(380);
+    m_chatScroll->setMinimumHeight(300);
     conversation->body()->addWidget(m_chatScroll, 1);
-    auto *typeRow = new QHBoxLayout;
-    m_typed->setPlaceholderText(tr("Prefer typing? Write your answer and press Enter"));
-    auto *send = new QPushButton(tr("Send"));
-    typeRow->addWidget(m_typed, 1);
-    typeRow->addWidget(send);
-    conversation->body()->addLayout(typeRow);
-
-    live->addWidget(stage, 2);
-    live->addWidget(conversation, 3);
+    m_typed->setPlaceholderText(tr("Or type, then Enter"));
+    conversation->body()->addWidget(m_typed);
+    live->addWidget(conversation, 2);
 
     // ================= Results =================
     auto *resultsPage = new QWidget;
@@ -258,7 +287,6 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     m_stack->addWidget(setupPage);
     m_stack->addWidget(livePage);
     m_stack->addWidget(resultsPage);
-
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_stack);
@@ -268,18 +296,17 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
     applyTypeDefaults(m_type->currentText());
     connect(startButton, &QPushButton::clicked, this, &SimulationView::start);
     connect(endButton, &QPushButton::clicked, m_engine, &SimulationEngine::end);
-    auto sendTyped = [this] {
+    connect(m_typed, &QLineEdit::returnPressed, this, [this] {
         m_engine->sendTyped(m_typed->text());
         m_typed->clear();
-    };
-    connect(send, &QPushButton::clicked, this, sendTyped);
-    connect(m_typed, &QLineEdit::returnPressed, this, sendTyped);
+    });
 
     m_avatar->setLevelSource([this] { return m_engine->player()->level(); });
     connect(m_engine, &SimulationEngine::stateChanged, m_avatar, &AvatarWidget::setState);
     connect(m_engine, &SimulationEngine::moodChanged, m_avatar, &AvatarWidget::setMood);
     connect(m_engine, &SimulationEngine::message, this, &SimulationView::addBubble);
     connect(m_engine, &SimulationEngine::statusChanged, m_status, &QLabel::setText);
+    connect(m_engine, &SimulationEngine::liveTip, this, &SimulationView::showFeedback);
     connect(m_engine, &SimulationEngine::failed, this, [this](const QString &error) {
         m_setupNote->setText(error);
         m_stack->setCurrentIndex(0);
@@ -290,10 +317,20 @@ SimulationView::SimulationView(SessionController *controller, AiClient *ai, Micr
         m_meter->setSpeaking(speaking);
         m_avatar->setUserSpeaking(speaking);
     });
+    connect(m_mic, &MicrophoneMonitor::noisyChanged, this, [this](bool noisy) {
+        m_noise->setVisible(noisy && m_engine->isRunning());
+    });
+    connect(m_camera, &CameraMonitor::frameReady, this, [this](const QImage &frame) {
+        if (m_stack->currentIndex() == 1 && isVisible())
+            m_self->setFrame(frame);
+    });
     m_clockTimer.setInterval(500);
     connect(&m_clockTimer, &QTimer::timeout, this, [this] {
-        m_clock->setText(tr("%1 / %2").arg(formatDuration(m_engine->elapsedSeconds()), formatDuration(m_engine->totalSeconds())));
+        m_clock->setText(QStringLiteral("%1 / %2").arg(formatDuration(m_engine->elapsedSeconds()), formatDuration(m_engine->totalSeconds())));
     });
+    m_feedbackTimer.setSingleShot(true);
+    m_feedbackTimer.setInterval(6000);
+    connect(&m_feedbackTimer, &QTimer::timeout, m_feedback, &QWidget::hide);
 }
 
 void SimulationView::applyTypeDefaults(const QString &type)
@@ -309,16 +346,10 @@ void SimulationView::applyTypeDefaults(const QString &type)
 void SimulationView::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
-    // Suggest objectives from the plan: what the last section asks for, plus
-    // the key points
     if (m_objectives->toPlainText().trimmed().isEmpty()) {
         const Agenda agenda = m_controller->agenda();
-        QStringList objectives;
         if (!agenda.isEmpty() && !agenda.last().summary.isEmpty())
-            objectives << agenda.last().summary;
-        if (!agenda.isEmpty() && !agenda.last().keyPoints.isEmpty())
-            objectives << agenda.last().keyPoints;
-        m_objectives->setPlainText(objectives.join(QLatin1Char('\n')));
+            m_objectives->setPlainText(agenda.last().summary);
     }
 }
 
@@ -329,7 +360,7 @@ void SimulationView::start()
         return;
     }
     if (!m_ai->isConfigured()) {
-        m_setupNote->setText(tr("The simulation needs an AI key (Settings → AI coach)."));
+        m_setupNote->setText(tr("Add your AI key in Settings first."));
         return;
     }
     SimulationConfig config;
@@ -349,7 +380,12 @@ void SimulationView::start()
 
     while (QLayoutItem *item = m_chat->takeAt(0)) {
         delete item->widget();
-        delete item->layout();
+        if (item->layout()) {
+            while (QLayoutItem *inner = item->layout()->takeAt(0)) {
+                delete inner->widget();
+                delete inner;
+            }
+        }
         delete item;
     }
     QString role = config.role;
@@ -357,15 +393,18 @@ void SimulationView::start()
         role[0] = role[0].toUpper();
     m_roleLabel->setText(role.isEmpty() ? tr("SMILE") : role);
     m_setupNote->clear();
+    m_feedback->hide();
+    m_noise->hide();
+    m_self->setMessage(AppSettings::instance().useCamera() ? tr("Starting camera…") : tr("Camera off"));
     m_stack->setCurrentIndex(1);
     m_clockTimer.start();
     m_engine->start(config);
 }
 
-void SimulationView::addBubble(bool fromAvatar, const QString &text, const QString &intent)
+void SimulationView::addBubble(bool fromAvatar, const QString &text, const QString &)
 {
     auto *row = new QHBoxLayout;
-    QLabel *b = bubble(text, fromAvatar, QString(intent).replace(QLatin1Char('_'), QLatin1Char(' ')));
+    QLabel *b = bubble(text, fromAvatar);
     if (fromAvatar) {
         row->addWidget(b);
         row->addStretch();
@@ -377,6 +416,21 @@ void SimulationView::addBubble(bool fromAvatar, const QString &text, const QStri
     QTimer::singleShot(30, this, [this] { m_chatScroll->verticalScrollBar()->setValue(m_chatScroll->verticalScrollBar()->maximum()); });
 }
 
+void SimulationView::showFeedback(const Tip &tip)
+{
+    // Live behaviour feedback, right under your video, like the real companion
+    const Theme::Colors &c = Theme::colors();
+    const QColor tone = tip.severity == TipSeverity::Warning ? c.orange : (tip.severity == TipSeverity::Positive ? c.success : c.accent);
+    QColor bg = tone;
+    bg.setAlpha(c.dark ? 50 : 30);
+    m_feedback->setStyleSheet(QStringLiteral("background: %1; border-left: 4px solid %2; border-radius: 6px; padding: 8px 12px; "
+                                             "font-weight: 600;")
+                                  .arg(Theme::css(bg), Theme::css(tone)));
+    m_feedback->setText(tip.text);
+    m_feedback->show();
+    m_feedbackTimer.start();
+}
+
 void SimulationView::showResults(const QJsonObject &e, const SessionReport &report)
 {
     m_clockTimer.stop();
@@ -386,65 +440,51 @@ void SimulationView::showResults(const QJsonObject &e, const SessionReport &repo
         delete item;
     }
     const Theme::Colors &c = Theme::colors();
-    const int score = e.value(QLatin1String("score")).toInt(-1);
-    const Rating rating = PostMeetPage::ratingFor(score);
+    // The score comes from what was measured (behaviour), so it always exists
+    const Evaluation ev = PostMeetPage::evaluate(report, QJsonObject{{QStringLiteral("summary"), e.value(QLatin1String("summary"))},
+                                                                    {QStringLiteral("improvements"), e.value(QLatin1String("improvements"))}});
 
     auto *hero = new Card;
     auto *heroRow = new QHBoxLayout;
     heroRow->setSpacing(24);
-    heroRow->addWidget(new ScoreRing(score, Theme::ratingColor(int(rating)), 140, tr("/ 100")));
+    heroRow->addWidget(new ScoreRing(ev.overall, Theme::ratingColor(int(ev.rating)), 140, tr("/ 100")));
     auto *text = new QVBoxLayout;
     text->addStretch();
-    text->addWidget(Ui::label(tr("MEETING SIMULATION · %1 · %2").arg(m_type->currentText().toUpper(), formatDuration(report.totalSeconds)), "caption"));
-    QLabel *summary = Ui::label(e.value(QLatin1String("summary")).toString(e.value(QLatin1String("error")).toString()));
-    QFont f = summary->font();
-    f.setPointSizeF(f.pointSizeF() * 1.15);
-    summary->setFont(f);
+    text->addWidget(Ui::label(tr("SIMULATION · %1 · %2").arg(m_type->currentText().toUpper(), formatDuration(report.totalSeconds)), "caption"));
+    QLabel *headline = Ui::label(ev.headline, "bigValue");
+    headline->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::css(Theme::ratingColor(int(ev.rating)))));
+    text->addWidget(headline);
+    QLabel *summary = Ui::label(ev.assessment);
     summary->setWordWrap(true);
     text->addWidget(summary);
-    text->addWidget(Ui::label(tr("%1 exchanges · %2 interruptions").arg(e.value(QLatin1String("turns")).toInt()).arg(e.value(QLatin1String("interruptions")).toInt()), "secondary"));
+    text->addWidget(Ui::label(tr("%1 exchanges · SMILE stepped in %2×")
+                                  .arg(e.value(QLatin1String("turns")).toInt())
+                                  .arg(e.value(QLatin1String("interventions")).toInt()),
+                              "secondary"));
     text->addStretch();
     heroRow->addLayout(text, 1);
     hero->body()->addLayout(heroRow);
     m_results->addWidget(hero);
 
-    auto addScore = [&](const QString &name, const char *key) {
-        const int v = e.value(QLatin1String(key)).toInt(-1);
-        auto *x = new Expander(name, QString(), v, Theme::ratingColor(int(PostMeetPage::ratingFor(v))), v >= 0 ? QStringLiteral("%1%").arg(v) : tr("–"));
-        x->body()->addWidget(Ui::label(QString()));
-        m_results->addWidget(x);
-    };
-    addScore(tr("Answering questions"), "answers");
-    addScore(tr("Evidence and arguments"), "evidence");
-    addScore(tr("Composure under pressure"), "composure");
-    addScore(tr("Clarity"), "clarity");
-
-    auto listCard = [&](const QString &title, const char *key, const QColor &dot) {
-        const QJsonArray items = e.value(QLatin1String(key)).toArray();
-        if (items.isEmpty())
-            return;
-        auto *card = new Card(title);
-        for (const QJsonValue &v : items) {
-            QLabel *l = Ui::label(QStringLiteral("<span style='color:%1'>●</span>&nbsp; %2").arg(Theme::css(dot), v.toString().toHtmlEscaped()));
+    if (!ev.improvements.isEmpty()) {
+        auto *imp = new Card(tr("Work on this next"));
+        int n = 1;
+        for (const QString &t : ev.improvements) {
+            QLabel *l = Ui::label(QStringLiteral("<span style='color:%1; font-weight:700'>%2</span>&nbsp;&nbsp;%3")
+                                      .arg(Theme::css(c.accent))
+                                      .arg(n++)
+                                      .arg(t.toHtmlEscaped()));
             l->setTextFormat(Qt::RichText);
             l->setWordWrap(true);
-            card->body()->addWidget(l);
+            imp->body()->addWidget(l);
         }
-        m_results->addWidget(card);
-    };
-    listCard(tr("Most important improvements"), "improvements", c.accent);
-    listCard(tr("Handled well"), "handled_well", c.success);
-    listCard(tr("Where you struggled"), "struggled", c.orange);
-
-    const QJsonArray objectives = e.value(QLatin1String("objectives")).toArray();
-    if (!objectives.isEmpty()) {
-        auto *card = new Card(tr("Objectives"));
-        for (const QJsonValue &v : objectives) {
-            const QJsonObject o = v.toObject();
-            const bool met = o.value(QLatin1String("met")).toBool();
-            QLabel *l = Ui::label(QStringLiteral("<span style='color:%1; font-weight:700'>%2</span>&nbsp; %3")
-                                      .arg(Theme::css(met ? c.success : c.critical), met ? QStringLiteral("✓") : QStringLiteral("✗"),
-                                           o.value(QLatin1String("objective")).toString().toHtmlEscaped()));
+        m_results->addWidget(imp);
+    }
+    const QJsonArray highlights = e.value(QLatin1String("highlights")).toArray();
+    if (!highlights.isEmpty()) {
+        auto *card = new Card(tr("Well done"));
+        for (const QJsonValue &v : highlights) {
+            QLabel *l = Ui::label(QStringLiteral("<span style='color:%1'>●</span>&nbsp; %2").arg(Theme::css(c.success), v.toString().toHtmlEscaped()));
             l->setTextFormat(Qt::RichText);
             l->setWordWrap(true);
             card->body()->addWidget(l);
@@ -452,22 +492,23 @@ void SimulationView::showResults(const QJsonObject &e, const SessionReport &repo
         m_results->addWidget(card);
     }
 
-    // Delivery: the same breakdown as the Results page, compact
-    const Evaluation ev = PostMeetPage::evaluate(report);
-    QLabel *caption = Ui::label(tr("YOUR DELIVERY"), "caption");
-    m_results->addWidget(caption);
     for (const ReportCategory &cat : ev.categories) {
-        if (cat.score < 0 || cat.name == PostMeetPage::tr("Timing"))
+        if (cat.score < 0 || cat.name == PostMeetPage::tr("Timing") || cat.name == PostMeetPage::tr("Key points"))
             continue;
         auto *x = new Expander(cat.name, cat.summary, cat.score, Theme::ratingColor(int(cat.rating)), QStringLiteral("%1%").arg(cat.score));
+        for (const QString &d : cat.details)
+            x->body()->addWidget(Ui::label(QStringLiteral("• ") + d, "secondary"));
+        for (const QString &moment : cat.events)
+            x->body()->addWidget(Ui::label(QStringLiteral("⚑ ") + moment));
         for (const QString &r : cat.recommendations)
-            x->body()->addWidget(Ui::label(QStringLiteral("• ") + r));
+            x->body()->addWidget(Ui::label(QStringLiteral("→ ") + r));
         m_results->addWidget(x);
     }
 
-    auto *again = new QPushButton(tr("Run another simulation"));
+    auto *again = new QPushButton(tr("Try again"));
     again->setObjectName(QStringLiteral("accent"));
     again->setCursor(Qt::PointingHandCursor);
+    again->setMinimumHeight(38);
     connect(again, &QPushButton::clicked, this, [this] { m_stack->setCurrentIndex(0); });
     m_results->addWidget(again, 0, Qt::AlignLeft);
     m_stack->setCurrentIndex(2);

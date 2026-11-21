@@ -83,6 +83,8 @@ void SessionController::startWith(const Agenda &agenda, SessionMode mode)
         return;
 
     m_mode = mode;
+    // Training-type sessions use the (stricter) training thresholds
+    AppSettings::instance().setTrainingActive(mode != SessionMode::Meeting);
     m_active = agenda;
     if (m_active.isEmpty()) {
         AgendaPoint open;
@@ -98,6 +100,7 @@ void SessionController::startWith(const Agenda &agenda, SessionMode mode)
     }
     m_previousIndex = -1;
     m_heardSpeech = false;
+    m_offAgendaNudges = 0;
 
     m_log.clear();
     m_startedAt = QDateTime::currentDateTime();
@@ -149,6 +152,7 @@ void SessionController::stop()
     report.totalSeconds = total;
     report.points = m_active;
     report.tips = m_log;
+    report.offAgendaNudges = m_offAgendaNudges;
     for (TipSource *source : std::as_const(m_sources)) {
         const QVariantMap data = source->reportData();
         if (!data.isEmpty())
@@ -157,6 +161,7 @@ void SessionController::stop()
 
     emit runningChanged(false);
     emit finished(report);
+    AppSettings::instance().setTrainingActive(false);
 }
 
 void SessionController::beginPoint(int index)
@@ -252,7 +257,8 @@ void SessionController::addTranscript(const QString &text)
 
     // Did the speaker move on to the next section? Compare what was just said
     // with the topic words of the current and the next section.
-    if (AppSettings::instance().autoAdvance() && m_index + 1 < m_active.size() && elapsedOnCurrent() >= 10) {
+    const bool aiJudges = !AppSettings::instance().apiKey().isEmpty() && AppSettings::instance().cloudAnalysis();
+    if (!aiJudges && AppSettings::instance().autoAdvance() && m_index + 1 < m_active.size() && elapsedOnCurrent() >= 10) {
         const QSet<QString> said = Coverage::keywords(text);
         auto topic = [this](int i) {
             const AgendaPoint &p = m_active.at(i);
@@ -294,6 +300,46 @@ void SessionController::addTranscript(const QString &text)
     }
 }
 
+void SessionController::markKeyPointCovered(int section, int keyPoint)
+{
+    if (!m_running || section < 0 || section >= m_active.size())
+        return;
+    AgendaPoint &p = m_active[section];
+    if (p.keyPointCovered.size() != p.keyPoints.size())
+        p.keyPointCovered = QList<bool>(p.keyPoints.size(), false);
+    if (keyPoint < 0 || keyPoint >= p.keyPoints.size() || p.keyPointCovered[keyPoint])
+        return;
+    p.keyPointCovered[keyPoint] = true;
+    LiveSignals::instance().addEvent(LiveSignals::Event::Info, tr("Key point covered"),
+                                     tr("\"%1\" in \"%2\" (judged by meaning)").arg(p.keyPoints[keyPoint], p.title));
+}
+
+void SessionController::advanceTo(int index, const QString &reason)
+{
+    if (!m_running || index != m_index + 1 || index >= m_active.size() || elapsedOnCurrent() < 8)
+        return;
+    const QString from = m_active.at(m_index).title;
+    closeCurrentPoint();
+    beginPoint(index);
+    LiveSignals::instance().addEvent(LiveSignals::Event::Info, tr("Moved on to \"%1\"").arg(m_active.at(index).title),
+                                     tr("From \"%1\". %2").arg(from, reason));
+}
+
+void SessionController::nudgeBackOnTrack()
+{
+    if (!m_running || m_index < 0 || m_index >= m_active.size())
+        return;
+    ++m_offAgendaNudges;
+    Tip tip;
+    tip.category = TipCategory::Content;
+    tip.severity = TipSeverity::Info;
+    tip.text = tr("Back to: %1").arg(m_active.at(m_index).title);
+    tip.reason = tr("Your last minute of speech didn't match any section of your plan. Going off-agenda is your "
+                    "choice; it's noted in your results.");
+    tip.source = QStringLiteral("coverage");
+    raiseTip(tip);
+}
+
 void SessionController::updateCoverage(int index, bool announce)
 {
     if (index < 0 || index >= m_active.size())
@@ -314,6 +360,9 @@ void SessionController::updateCoverage(int index, bool announce)
 
 void SessionController::checkSkippedKeyPoints(int index)
 {
+    // In a real meeting, don't nag about content; it's in the results instead
+    if (m_mode == SessionMode::Meeting)
+        return;
     if (!m_running || !m_heardSpeech || index < 0 || index >= m_active.size())
         return; // without transcripts we can't know what was said
     updateCoverage(index, true);

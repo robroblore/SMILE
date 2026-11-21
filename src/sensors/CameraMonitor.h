@@ -12,6 +12,7 @@
 
 #include "vision/FaceFrame.h"
 
+class ExpressionModel;
 class FaceDetector;
 class QCamera;
 
@@ -38,6 +39,9 @@ private:
     void detect(const QImage &image);
 
     std::unique_ptr<FaceDetector> m_detector; // created on the worker thread
+    std::unique_ptr<ExpressionModel> m_expression;
+    QElapsedTimer m_lastExpression;
+    FaceFrame m_lastExpressionFrame;
     std::atomic<bool> m_available{false};
     QElapsedTimer m_lastDetect;
     QElapsedTimer m_clock;

@@ -52,7 +52,8 @@ Agenda sampleAgenda()
 }
 } // namespace
 
-TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, QWidget *parent)
+TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, MicrophoneMonitor *mic, CameraMonitor *camera,
+                           QWidget *parent)
     : QWidget(parent)
     , m_controller(controller)
     , m_ai(ai)
@@ -75,8 +76,7 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, Micropho
 
     // ---- Speech / notes
     auto *speechCard = new Card(tr("What do you want to say?"));
-    QLabel *speechHint = Ui::label(tr("Paste or write your speech, presentation or meeting notes. SMILE splits it "
-                                      "into sections and key points, then checks you get them across."),
+    QLabel *speechHint = Ui::label(tr("Paste your notes. SMILE turns them into sections and key points."),
                                    "secondary");
     speechHint->setWordWrap(true);
     speechCard->body()->addWidget(speechHint);
@@ -126,8 +126,7 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, Micropho
     sectionsHead->addStretch();
     sectionsHead->addWidget(m_type);
     sectionsCard->body()->addLayout(sectionsHead);
-    QLabel *sectionsHint = Ui::label(tr("Rename, reorder and time each section. Open one to edit its purpose and the "
-                                        "key points SMILE listens for."),
+    QLabel *sectionsHint = Ui::label(tr("Drag to reorder, set times, open one to edit its key points."),
                                      "secondary");
     sectionsHint->setWordWrap(true);
     sectionsCard->body()->addWidget(sectionsHint);
@@ -145,8 +144,7 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, Micropho
     auto *rehearseCard = new Card(tr("Rehearse"));
     auto *idleLayout = new QHBoxLayout(m_idle);
     idleLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel *idleText = Ui::label(tr("Present out loud as if you were in the meeting. SMILE times each section, "
-                                    "listens for your key points and coaches you as you go."),
+    QLabel *idleText = Ui::label(tr("Speak it out loud. SMILE times you and coaches as you go."),
                                  "secondary");
     idleText->setWordWrap(true);
     auto *start = new QPushButton(tr("Start rehearsal"));
@@ -158,17 +156,6 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, Micropho
     idleLayout->addWidget(start);
     rehearseCard->body()->addWidget(m_idle);
     rehearseCard->body()->addWidget(m_run);
-    auto *timer = new ToggleSwitch;
-    timer->setChecked(settings.sectionTimer());
-    connect(timer, &QAbstractButton::toggled, &settings, &AppSettings::setSectionTimer);
-    connect(&settings, &AppSettings::changed, timer, [timer] {
-        const QSignalBlocker block(timer);
-        timer->setChecked(AppSettings::instance().sectionTimer());
-    });
-    rehearseCard->body()->addWidget(new OptionRow(tr("Section timer next to SMILE"),
-                                                  tr("A small timer by the avatar shows the current section, its time and "
-                                                     "whether you're on track. It moves on when you start the next section."),
-                                                  timer));
 
     // ---- Tab 1: plan & rehearse
     auto *content = new QWidget;
@@ -192,7 +179,7 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, Micropho
     m_tabs = new QStackedWidget;
     m_tabs->addWidget(Ui::scrollPage(content));
     m_tabs->addWidget(wrap(new PracticeView(controller, ai)));
-    m_tabs->addWidget(wrap(new SimulationView(controller, ai, mic)));
+    m_tabs->addWidget(wrap(new SimulationView(controller, ai, mic, camera)));
 
     // ---- Header with tabs
     auto *top = new QWidget;
@@ -200,12 +187,11 @@ TrainingPage::TrainingPage(SessionController *controller, AiClient *ai, Micropho
     auto *topLayout = new QVBoxLayout(top);
     topLayout->setContentsMargins(36, 28, 36, 8);
     topLayout->setSpacing(10);
-    topLayout->addWidget(Ui::pageHeader(tr("Training"), tr("Plan what you'll say, practise it section by section, and "
-                                                           "rehearse a realistic meeting.")));
+    topLayout->addWidget(Ui::pageHeader(tr("Training"), tr("Practise until it feels easy.")));
     auto *tabRow = new QHBoxLayout;
     tabRow->setSpacing(4);
     auto *tabGroup = new QButtonGroup(this);
-    const QStringList tabNames = {tr("Plan && rehearse"), tr("Practise a section"), tr("Simulate a meeting")};
+    const QStringList tabNames = {tr("Rehearse"), tr("One section"), tr("Mock meeting")};
     for (int i = 0; i < tabNames.size(); ++i) {
         auto *b = new QPushButton(tabNames[i]);
         b->setObjectName(QStringLiteral("segment"));

@@ -147,7 +147,15 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
         const int engagement = vision.value(QStringLiteral("engagementPct"), -1).toInt();
         const int relaxed = vision.value(QStringLiteral("relaxedPct"), -1).toInt();
         const int smiling = vision.value(QStringLiteral("smilingPct"), -1).toInt();
-        c.score = blend({{double(expression), 0.6}, {double(engagement), 0.4}});
+        // Smile score from the on-device expression model: a real smile ~100, a calm
+        // attentive face ~45, so neutral-but-engaged is never punished to zero
+        const int smileScore = vision.value(QStringLiteral("smileScore"), -1).toInt();
+        if (smileScore >= 0) {
+            c.score = blend({{double(qBound(0, smileScore + 20, 100)), 0.65}, {double(engagement), 0.35}});
+            c.details << tr("Warmth: %1 / 100 (a smile ≈ 100, a calm, attentive face ≈ 45).").arg(smileScore);
+        } else {
+            c.score = blend({{double(expression), 0.6}, {double(engagement), 0.4}});
+        }
         const QVariantMap exprs = vision.value(QStringLiteral("expressions")).toMap();
         if (!exprs.isEmpty()) {
             QStringList parts;
@@ -158,7 +166,7 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
         if (relaxed >= 0)
             c.details << tr("Relaxed and natural: %1% of the time.").arg(relaxed);
         if (smiling >= 0)
-            c.details << tr("Smiling: %1% of the time (for information; smiling all the time isn't expected).").arg(smiling);
+            c.details << tr("Smiling: %1% of the time.").arg(smiling);
         const int tense = exprs.value(QStringLiteral("tense")).toInt() + exprs.value(QStringLiteral("unapproachable")).toInt();
         if (tense > 0 && tense * 4 >= exprs.value(QStringLiteral("neutral_relaxed")).toInt() + 1)
             c.recommendations << tr("Before you start, drop your shoulders and relax your jaw: it softens your expression.");
@@ -230,6 +238,48 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
         ev.categories << c;
     }
 
+    // --- Face & framing: visible, uncovered, steady in the frame. The most important
+    // thing on a video call, so it weighs the most
+    {
+        ReportCategory c;
+        c.name = tr("Face & framing");
+        c.measured = tr("Your face visible, not covered by a hand or object, and steady in the frame.");
+        const int visible = vision.value(QStringLiteral("faceVisiblePct"), -1).toInt();
+        const int coveredSeconds = vision.value(QStringLiteral("coveredSeconds")).toInt();
+        const int coveredPct = vision.value(QStringLiteral("coveredPct"), 0).toInt();
+        const int framing = vision.value(QStringLiteral("framingScore"), -1).toInt();
+        int coveredMoments = 0;
+        for (const QVariant &e : vision.value(QStringLiteral("events")).toList()) {
+            const QVariantMap m = e.toMap();
+            if (m.value(QStringLiteral("kind")).toString() == QLatin1String("covered")) {
+                ++coveredMoments;
+                c.events << QStringLiteral("%1 · %2").arg(m.value(QStringLiteral("at")).toString(), m.value(QStringLiteral("detail")).toString());
+            }
+        }
+        int score = blend({{double(visible), 0.6}, {double(framing), 0.4}});
+        if (score >= 0) {
+            score = clampScore(score - coveredPct * 3.0 - coveredMoments * 6.0);
+            if (visible >= 0)
+                c.details << tr("Face visible: %1% of the time.").arg(visible);
+            if (coveredSeconds > 0)
+                c.details << tr("Face covered for %1 (%2 times).").arg(formatDuration(coveredSeconds)).arg(qMax(1, coveredMoments));
+            if (framing >= 0)
+                c.details << tr("Steady framing: %1 / 100.").arg(framing);
+            if (coveredSeconds > 0)
+                c.recommendations << tr("Keep your hands away from your face; rest them on the desk.");
+            if (visible >= 0 && visible < 85)
+                c.recommendations << tr("Stay centred in the camera; don't lean out of the frame.");
+            if (framing >= 0 && framing < 70)
+                c.recommendations << tr("Sit still at one distance from the camera.");
+        }
+        c.score = score;
+        c.summary = score < 0        ? tr("Needs the camera.")
+                    : coveredSeconds ? tr("Your face was covered at times: the audience lost you.")
+                    : score >= 75    ? tr("Always visible and well framed.")
+                                     : tr("You were hard to see at times.");
+        ev.categories << c;
+    }
+
     // --- Body language
     {
         ReportCategory c;
@@ -260,10 +310,19 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
             c.details << tr("Restless movement %1% of the time.").arg(restless);
         if (badHands > 0)
             c.details << tr("Distracting hand gestures in %1 of %2 checks where your hands were visible.").arg(badHands).arg(handChecks);
+        int movementMoments = 0;
         for (const QVariant &e : vision.value(QStringLiteral("events")).toList()) {
             const QVariantMap m = e.toMap();
+            const QString kind = m.value(QStringLiteral("kind")).toString();
+            if (kind == QLatin1String("covered") || kind == QLatin1String("expression"))
+                continue;
+            if (kind == QLatin1String("movement") || kind == QLatin1String("gesture") || kind == QLatin1String("hands"))
+                ++movementMoments;
             c.events << QStringLiteral("%1 · %2").arg(m.value(QStringLiteral("at")).toString(), m.value(QStringLiteral("detail")).toString());
         }
+        // Disturbing movement is what an audience notices most: each moment costs
+        if (c.score >= 0)
+            c.score = clampScore(c.score - movementMoments * 4.0);
         if (upright >= 0 && upright < 75)
             c.recommendations << tr("Sit back in your chair with both feet on the floor; it stops you leaning in.");
         if (badHands > 0)
@@ -293,6 +352,8 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
         }
         if (total > 0 && heard)
             c.score = clampScore(100.0 * covered / total);
+        if (report.offAgendaNudges > 0)
+            c.details << tr("SMILE brought you back on topic %1×.").arg(report.offAgendaNudges);
         c.summary = total == 0 ? tr("No key points set. Add them to your sections on the Training page.")
                     : !heard   ? tr("Needs the microphone and an AI key to hear what you said.")
                                : tr("You got %1 of %2 key points across.").arg(covered).arg(total);
@@ -338,22 +399,47 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
         c.rating = ratingFor(c.score);
 
     // --- Overall
-    const QHash<QString, double> weights = {{tr("Key points"), 2.0}, {tr("Speech delivery"), 1.5}, {tr("Timing"), 1.25}};
+    // How you come across (face, body, expression, eyes) outweighs timing and key points
+    const QHash<QString, double> weights = {
+        {tr("Face & framing"), 2.0},    {tr("Body language"), 2.0},         {tr("Facial engagement"), 1.5},
+        {tr("Eye contact"), 1.5},       {tr("Speech delivery"), 1.25},      {tr("Professional language"), 1.0},
+        {tr("Key points"), 0.6},        {tr("Timing"), 0.5},
+    };
     QList<QPair<double, double>> parts;
-    for (const ReportCategory &c : ev.categories)
+    int faceScore = -1, bodyScore = -1;
+    for (const ReportCategory &c : ev.categories) {
         parts << qMakePair(double(c.score), weights.value(c.name, 1.0));
+        if (c.name == tr("Face & framing"))
+            faceScore = c.score;
+        if (c.name == tr("Body language"))
+            bodyScore = c.score;
+    }
     ev.overall = blend(parts);
-    ev.rating = ratingFor(ev.overall);
-    ev.headline = ev.overall < 0     ? tr("Not enough data")
-                  : ev.overall >= 85 ? tr("Excellent performance")
-                  : ev.overall >= 75 ? tr("Good performance")
-                  : ev.overall >= 50 ? tr("Needs some work")
-                                     : tr("Needs significant work");
+    // Show what matters most first
+    std::stable_sort(ev.categories.begin(), ev.categories.end(), [&weights](const ReportCategory &a, const ReportCategory &b) {
+        return weights.value(a.name, 1.0) > weights.value(b.name, 1.0);
+    });
+    // A hidden face or a restless body can't be made up for by good timing
+    if (ev.overall >= 0) {
+        if (faceScore >= 0 && faceScore < 60)
+            ev.overall = qMin(ev.overall, faceScore + 15);
+        if (bodyScore >= 0 && bodyScore < 50)
+            ev.overall = qMin(ev.overall, bodyScore + 20);
+    }
+    // Training is graded harder than a real meeting
+    const bool strict = report.mode != SessionMode::Meeting;
+    const int good = strict ? 82 : 75, ok = strict ? 60 : 50, great = strict ? 90 : 85;
+    ev.rating = ev.overall < 0 ? Rating::None : ev.overall >= good ? Rating::Good : ev.overall >= ok ? Rating::NeedsWork : Rating::Poor;
+    ev.headline = ev.overall < 0        ? tr("Not enough data")
+                  : ev.overall >= great ? tr("Excellent!")
+                  : ev.overall >= good  ? tr("Good job")
+                  : ev.overall >= ok    ? tr("Getting there")
+                                        : tr("Keep practising");
     ev.assessment = review.value(QLatin1String("summary")).toString();
     if (ev.assessment.isEmpty())
-        ev.assessment = ev.overall >= 85   ? tr("You communicated clearly and confidently.")
-                        : ev.overall >= 75 ? tr("You communicated effectively, with room to improve.")
-                        : ev.overall >= 50 ? tr("A solid base; a few habits are holding you back.")
+        ev.assessment = ev.overall >= great  ? tr("You communicated clearly and confidently.")
+                        : ev.overall >= good ? tr("You communicated effectively, with room to improve.")
+                        : ev.overall >= ok   ? tr("A solid base; a few habits are holding you back.")
                                            : tr("Focus on the improvements below and rehearse again.");
 
     // Most important improvements: the AI's list, else the weakest categories' advice
@@ -365,7 +451,7 @@ Evaluation PostMeetPage::evaluate(const SessionReport &report, const QJsonObject
             return (a.score < 0 ? 999 : a.score) < (b.score < 0 ? 999 : b.score);
         });
         for (const ReportCategory &c : sorted)
-            if (c.score >= 0 && c.score < 75 && !c.recommendations.isEmpty())
+            if (c.score >= 0 && c.score < good && !c.recommendations.isEmpty())
                 ev.improvements << c.recommendations.first();
     }
     while (ev.improvements.size() > 3)
@@ -533,7 +619,7 @@ void PostMeetPage::rebuild()
 QString PostMeetPage::summarizeForAi(const SessionReport &report)
 {
     QString s;
-    s += report.mode == SessionMode::Training ? QStringLiteral("Session: rehearsal\n") : QStringLiteral("Session: real meeting\n");
+    s += report.mode == SessionMode::Meeting ? QStringLiteral("Session: real meeting\n") : QStringLiteral("Session: training (grade strictly)\n");
     s += QStringLiteral("Total time: %1\n\nSections (target / actual):\n").arg(formatDuration(report.totalSeconds));
     for (const AgendaPoint &p : report.points) {
         s += QStringLiteral("- %1: %2 / %3\n")
@@ -556,6 +642,11 @@ QString PostMeetPage::summarizeForAi(const SessionReport &report)
                                             .toJson(QJsonDocument::Compact)),
                       QString::fromUtf8(QJsonDocument(QJsonObject::fromVariantMap(vision.value(QStringLiteral("hands")).toMap()))
                                             .toJson(QJsonDocument::Compact)));
+        s += QStringLiteral("Face visible %1%, face covered for %2 s, framing steadiness %3/100, warmth (smile) %4/100.\n")
+                 .arg(vision.value(QStringLiteral("faceVisiblePct")).toInt())
+                 .arg(vision.value(QStringLiteral("coveredSeconds")).toInt())
+                 .arg(vision.value(QStringLiteral("framingScore")).toInt())
+                 .arg(vision.value(QStringLiteral("smileScore")).toInt());
     }
     const QVariantMap speech = report.sources.value(QStringLiteral("speech")).toMap();
     if (!speech.isEmpty()) {
@@ -583,13 +674,14 @@ void PostMeetPage::requestReview()
     const QString system = QStringLiteral(
         "You are SMILE, a warm, direct communication coach for professionals in high-stakes online meetings and job "
         "interviews. Review the session using only the data given. Be realistic: a calm neutral face is fine; brief "
-        "glances at notes are fine. Reply with ONLY JSON:\n"
+        "glances at notes are fine. What matters most is how they come across: a covered or hidden face and distracting "
+        "movement are the biggest problems, more than timing or exact key points. Reply with ONLY JSON:\n"
         "{\"summary\": \"one encouraging, specific sentence assessing the whole performance\",\n"
         " \"improvements\": [\"the 3 most important, concrete improvements, most important first\"],\n"
         " \"delivery\": {\"clarity\": 0-100, \"confidence\": 0-100, \"articulation\": 0-100},\n"
         " \"language\": [{\"phrase\": \"exact unprofessional or weak phrase from the transcript\", \"suggestion\": \"a more "
         "professional alternative\", \"why\": \"a few words\"}],\n"
-        " \"categories\": {\"Speech delivery\": \"one sentence\", \"Facial engagement\": \"one sentence\", \"Eye contact\": "
+        " \"categories\": {\"Face & framing\": \"one sentence\", \"Speech delivery\": \"one sentence\", \"Facial engagement\": \"one sentence\", \"Eye contact\": "
         "\"one sentence\", \"Professional language\": \"one sentence\", \"Body language\": \"one sentence\"}}\n"
         "Only include language items that really appear in the transcript; leave the list empty if there are none. "
         "If there is no transcript, omit delivery.");

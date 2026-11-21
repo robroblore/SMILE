@@ -28,7 +28,7 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
-    enum Page { TrainingPageIndex, PreMeetPageIndex, MeetPageIndex, PostMeetPageIndex, SettingsPageIndex };
+    enum Page { HomePageIndex, TrainingPageIndex, PreMeetPageIndex, MeetPageIndex, PostMeetPageIndex, SettingsPageIndex };
 
 protected:
     void closeEvent(QCloseEvent *event) override;

@@ -80,6 +80,12 @@ private:
     qint64 m_postureSince = -1;
     qint64 m_restlessSince = -1;
     qint64 m_coveredSince = -1;   // hand/object over the face
+    // Last moment each condition was actually seen: short flickers don't restart the clock
+    qint64 m_sideSeen = -1, m_notesSeen = -1, m_missingSeen = -1, m_coveredSeen = -1;
+    float m_lastFoundYaw = 0.f;   // head direction just before the tracker lost the face
+    float m_lastFoundPitch = 0.f;
+    qint64 m_lastFoundAt = -1;
+    qint64 m_noSmileMs = 0;       // time on camera without a smile since the last one
     float m_negativeEma = 0;      // local expression model, smoothed
     float m_happyEma = 0;
     float m_neutralEma = 0;

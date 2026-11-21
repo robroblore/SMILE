@@ -1,6 +1,9 @@
 #include "core/Tip.h"
 
 #include <QHash>
+#include <QSet>
+
+#include "core/AppSettings.h"
 
 #include <QCoreApplication>
 
@@ -46,9 +49,27 @@ int livePriority(const Tip &tip)
         {QStringLiteral("touching"), 3},      {QStringLiteral("uncomfortable"), 3},
         {QStringLiteral("eyes"), 4},          {QStringLiteral("notes"), 4},
         {QStringLiteral("fillers"), 5},       {QStringLiteral("cold"), 6},
-        {QStringLiteral("flat"), 6},
+        {QStringLiteral("flat"), 6},          {QStringLiteral("nosmile"), 6},
     };
     if (tip.source == QLatin1String("demo"))
         return 9;
     return order.value(tip.key, -1);
+}
+
+bool isUrgentTip(const QString &key)
+{
+    static const QSet<QString> urgent = {
+        QStringLiteral("covered"), QStringLiteral("noface"), QStringLiteral("eyes"), QStringLiteral("notes"),
+        QStringLiteral("nosmile"), QStringLiteral("cold"), QStringLiteral("fillers"),
+    };
+    return urgent.contains(key);
+}
+
+int repeatCooldownMs(const QString &key)
+{
+    // Urgent ones may come back soon if the problem comes back; others wait the
+    // strictness setting's cooldown
+    if (isUrgentTip(key))
+        return 15000;
+    return AppSettings::instance().thresholds().repeatCooldownSeconds * 1000;
 }

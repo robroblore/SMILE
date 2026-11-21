@@ -146,15 +146,22 @@ void CompanionWindow::showTip(const Tip &tip)
     if (m_snoozedUntil.isForever() || !m_snoozedUntil.hasExpired() || AppSettings::instance().tipsMuted())
         return;
 
-    const bool tooSoon = m_sinceHidden.isValid() && m_sinceHidden.elapsed() < m_gapMs;
+    // Important tips skip the quiet time between pop-ups
+    const bool urgent = isUrgentTip(tip.key);
+    const bool tooSoon = !urgent && m_sinceHidden.isValid() && m_sinceHidden.elapsed() < m_gapMs;
+    if (m_current && m_current->key == tip.key && !tip.key.isEmpty()
+        && (m_state == State::Entering || m_state == State::Shown))
+        return; // already on screen
     if (m_state != State::Hidden || tooSoon) {
         // Keep the most important waiting tip (face covered > posture > gaze > fillers > smile)
-        if (m_pending && m_pendingAge.elapsed() < kStaleTipMs && rank(*m_pending) < rank(tip))
+        if (m_pending && m_pendingAge.elapsed() < kStaleTipMs && isUrgentTip(m_pending->key) >= urgent
+            && rank(*m_pending) < rank(tip))
             return;
         m_pending = tip;
         m_pendingAge.restart();
-        // A hidden face can't wait behind a smaller tip
-        if (rank(tip) <= 1 && m_current && rank(*m_current) > 1 && m_state != State::Leaving)
+        // An important tip doesn't wait behind a less important one on screen
+        if (urgent && m_current && (!isUrgentTip(m_current->key) || rank(tip) < rank(*m_current))
+            && m_state != State::Leaving && m_current->key != tip.key)
             startLeaving();
         else if (m_state == State::Hidden)
             m_pendingTimer.start(int(m_gapMs - m_sinceHidden.elapsed()));
@@ -365,7 +372,7 @@ void CompanionWindow::onAppearFinished()
         if (!m_hover)
             m_hold.start();
     } else if (m_state == State::Leaving) {
-        const bool urgentNext = m_pending && rank(*m_pending) <= 1 && m_current && rank(*m_current) > 1;
+        const bool urgentNext = m_pending && isUrgentTip(m_pending->key);
         m_state = State::Hidden;
         m_current.reset();
         updateMask();

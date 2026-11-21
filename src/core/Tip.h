@@ -41,4 +41,10 @@ QString categoryName(TipCategory category);
 // shown live (0 = most urgent), or -1 if it must not pop up during a session.
 // Order: face covered/out of frame, posture and movement, gaze, filler words, smile.
 int livePriority(const Tip &tip);
+
+// Important tips (face covered or gone, looking away, not smiling for long, filler
+// words) bypass the quiet time between pop-ups; the rest respect it.
+bool isUrgentTip(const QString &key);
+// How long before the same kind of tip may repeat
+int repeatCooldownMs(const QString &key);
 const QList<TipCategory> &allTipCategories();

@@ -32,6 +32,7 @@ public slots:
     void resetPosition();
 
 signals:
+    void liveTipPresented(const Tip &tip);
     void openMainWindowRequested();
     void nextPointRequested();
     void endSessionRequested();
@@ -51,7 +52,7 @@ protected:
 private:
     enum class State { Hidden, Entering, Shown, Leaving };
 
-    void popUp(const Tip &tip);
+    void popUp(const Tip &tip, bool preview);
     void setCurrentTip(const Tip &tip);
     void startLeaving();
     void onFrame();
@@ -69,6 +70,7 @@ private:
     QDeadlineTimer m_snoozedUntil;
     int m_gapMs = 45000;
     bool m_sessionActive = false;
+    bool m_livePresentationPending = false;
 
     QVariantAnimation m_appear; // 0 hidden .. 1 fully shown
     QTimer m_frame;

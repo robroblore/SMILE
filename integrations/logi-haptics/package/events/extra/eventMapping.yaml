@@ -1,8 +1,10 @@
 haptics:
     meetingWarning:
-        DEFAULT: sharp_collision
-        MX Master 4: sharp_collision
+        DEFAULT: knock
+        MX Master 4: knock
     meetingWarningLow:
         DEFAULT: subtle_collision
+        MX Master 4: subtle_collision
     meetingWarningMedium:
-        DEFAULT: damp_collision
+        DEFAULT: sharp_collision
+        MX Master 4: sharp_collision

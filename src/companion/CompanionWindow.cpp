@@ -33,6 +33,12 @@ constexpr int kStaleTipMs = 30000; // drop a waiting tip after this long
 constexpr qreal kBubbleStartProgress = 0.3;
 const char *kPosKey = "companion/anchor"; // bottom-right corner, so resizing keeps it in place
 
+bool isOvertimeWarning(const Tip &tip)
+{
+    return tip.category == TipCategory::Timing && tip.severity == TipSeverity::Warning
+        && tip.source == QLatin1String("timer");
+}
+
 QColor accentFor(const Tip &tip)
 {
     const Theme::Colors &c = Theme::colors();
@@ -93,6 +99,7 @@ CompanionWindow::CompanionWindow(QWidget *parent)
         if (m_state == State::Entering && m_sessionActive && m_livePresentationPending
             && m_current && value.toReal() > kBubbleStartProgress) {
             m_livePresentationPending = false;
+            m_liveTipOnScreen = true;
             emit liveTipPresented(*m_current);
         }
     });
@@ -140,10 +147,14 @@ void CompanionWindow::showTip(const Tip &tip)
 
     const bool tooSoon = m_sinceHidden.isValid() && m_sinceHidden.elapsed() < m_gapMs;
     if (m_state != State::Hidden || tooSoon) {
-        // Keep only the newest tip; older ones are no longer relevant.
+        if (isOvertimeWarning(tip) && m_pending && m_pendingAge.elapsed() < kStaleTipMs
+            && m_pending->category == TipCategory::Appearance)
+            return;
         m_pending = tip;
         m_pendingAge.restart();
-        if (m_state == State::Hidden)
+        if (tip.category == TipCategory::Appearance && m_current && isOvertimeWarning(*m_current))
+            startLeaving();
+        else if (m_state == State::Hidden)
             m_pendingTimer.start(int(m_gapMs - m_sinceHidden.elapsed()));
         return;
     }
@@ -157,7 +168,7 @@ void CompanionWindow::previewTip(const Tip &tip)
         m_state = State::Hidden;
         popUp(tip, true);
     } else {
-        m_livePresentationPending = false;
+        closeLiveTip();
         setCurrentTip(tip);
         m_hold.start();
     }
@@ -323,12 +334,21 @@ void CompanionWindow::setCurrentTip(const Tip &tip)
     update();
 }
 
+void CompanionWindow::closeLiveTip()
+{
+    m_livePresentationPending = false;
+    if (m_liveTipOnScreen) {
+        m_liveTipOnScreen = false;
+        emit liveTipClosed();
+    }
+}
+
 void CompanionWindow::startLeaving()
 {
     if (m_state == State::Hidden || m_state == State::Leaving)
         return;
     m_hold.stop();
-    m_livePresentationPending = false;
+    closeLiveTip();
     m_state = State::Leaving;
     m_appear.stop();
     m_appear.setDirection(QAbstractAnimation::Backward);
@@ -343,6 +363,8 @@ void CompanionWindow::onAppearFinished()
         if (!m_hover)
             m_hold.start();
     } else if (m_state == State::Leaving) {
+        const bool appearanceTakesPriority = m_current && isOvertimeWarning(*m_current)
+            && m_pending && m_pending->category == TipCategory::Appearance;
         m_state = State::Hidden;
         m_current.reset();
         updateMask();
@@ -355,7 +377,7 @@ void CompanionWindow::onAppearFinished()
         }
         m_sinceHidden.restart();
         if (m_pending)
-            m_pendingTimer.start(m_gapMs);
+            m_pendingTimer.start(appearanceTakesPriority ? 0 : m_gapMs);
     }
 }
 
@@ -678,7 +700,6 @@ void CompanionWindow::contextMenuEvent(QContextMenuEvent *event)
     menu.addAction(tr("Dismiss"), this, &CompanionWindow::dismiss)->setEnabled(m_current.has_value());
     menu.addAction(tr("Snooze tips for 10 minutes"), this, [this] {
         m_snoozedUntil = QDeadlineTimer(10 * 60 * 1000);
-        emit liveTipsSnoozed();
         m_pending.reset();
         dismiss();
     });

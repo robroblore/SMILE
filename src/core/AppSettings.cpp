@@ -283,14 +283,28 @@ void AppSettings::setHapticDurationSeconds(int seconds)
     emit changed();
 }
 
-int AppSettings::hapticStrength() const
+int AppSettings::hapticIntensity() const
 {
     return qBound(0, value("haptics/strength", 1).toInt(), 2);
 }
 
-void AppSettings::setHapticStrength(int strength)
+void AppSettings::setHapticIntensity(int intensity)
 {
-    store("haptics/strength", qBound(0, strength, 2));
+    store("haptics/strength", qBound(0, intensity, 2));
+    emit changed();
+}
+
+int AppSettings::hapticPulseIntervalMs() const
+{
+    const int milliseconds = value("haptics/pulseIntervalMs", 1000).toInt();
+    return milliseconds == 500 || milliseconds == 3000 ? milliseconds : 1000;
+}
+
+void AppSettings::setHapticPulseIntervalMs(int milliseconds)
+{
+    if (milliseconds != 500 && milliseconds != 1000 && milliseconds != 3000)
+        return;
+    store("haptics/pulseIntervalMs", milliseconds);
     emit changed();
 }
 

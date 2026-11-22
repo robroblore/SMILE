@@ -1,373 +1,222 @@
 # S.M.I.L.E.
-### Smart Meeting Interactive Live Education
 
-**Turn every online meeting into an opportunity to become a better communicator.**
+**Smart Meeting Interactive Live Education**
 
-## Project Introduction
+SMILE is a desktop coach that helps you **correct your body behaviour in online meetings** such as job interviews, client pitches and presentations. It watches and listens through your webcam and microphone, coaches you while you train, checks your setup before a call, gives a few quiet nudges during it, and scores you afterwards. Only you see it.
 
-Whether pitching to a client, interviewing for a job, presenting to stakeholders or leading an important meeting, how you communicate matters just as much as what you say.
+> SMILE only reads your camera and microphone. It never alters, filters or overlays your outgoing video, never joins the meeting as a bot, and never records to disk.
 
-SMILE is an AI-powered desktop coach designed for **high-stakes presenters, professionals and organisations** who want to improve how they communicate online.
+**Download:** Windows (`.zip`), macOS (universal `.dmg`) and Linux (`.AppImage`) builds are attached to every [GitHub release](../../releases). See [Installation and setup](#installation-and-setup).
 
-We believe that becoming a better presenter shouldn't mean memorising a checklist or watching hours of generic tutorials. People learn best by practising in realistic situations, receiving feedback that adapts to their individual behaviour, and seeing their progress over time.
+<p align="center"><img src="docs/screenshots/companion.png" alt="The SMILE companion with three live tips: face covered, smile more, pause for questions" width="760"></p>
 
-SMILE makes this possible by combining real-time multimodal AI with interactive training simulations. It observes your facial expressions, posture, gestures, eye contact and speech, providing personalised feedback while you practise and subtle reminders during real meetings.
-
-**The key idea: learn by doing, improve through feedback, and see the difference in real meetings.**
-
-Unlike a chatbot or traditional presentation course, SMILE creates an interactive learning experience in which your own behaviour is the material being taught. When you start slouching, covering your face or looking away from the camera, SMILE detects it and shows you what to change, right when it happens.
-
-The goal is not to make everyone behave identically, but to help each person develop the communication style that best fits their role and objectives.
-
-> SMILE only reads your camera and microphone. It never alters your outgoing video, joins meetings as a bot or records video or audio to disk. Only you see the coaching feedback.
-
----
-
-## Technical Details & Architecture
-
-SMILE is a native desktop application built with **C++, Qt and real-time AI**, combining local computer vision with cloud-based multimodal intelligence.
-
-### Technology Stack
-
-| Component | Technology | Purpose |
-|---|---|---|
-| Desktop application | C++17, Qt 6.8+ | Native cross-platform interface |
-| Computer vision | ONNX Runtime, YuNet | Local face detection, landmarks and head tracking |
-| Facial expression | FER+ | Smile and facial engagement detection |
-| Multimodal AI | Together AI | Contextual analysis of posture, hands and body language |
-| Speech recognition | Whisper Large v3 | Transcription, filler words and speech analysis |
-| AI coaching | NVIDIA Nemotron, GPT-OSS, Kimi | Personalised feedback and behavioural evaluation |
-| Mock meeting conversation | GPT-OSS-120B | Interactive role-play and follow-up questions |
-| Avatar speech | Kokoro-82M | Spoken responses from the AI meeting partner |
-| Hardware integration | Logitech LogiInsight, MX Master 4 | Infrared body tracking and discreet haptic feedback |
-
-### Architecture
-
-SMILE combines local processing and cloud intelligence to provide responsive, context-aware coaching.
-
-**1. Multimodal input**
-
-The webcam and microphone continuously provide information about the user's behaviour:
-
-- Video frames and facial landmarks.
-- Head direction and facial expressions.
-- Body posture, hand movements and gestures.
-- Speech, pauses, filler words and speaking duration.
-- Environmental noise levels.
-
-**2. Local intelligence**
-
-On-device models track facial position, landmarks and expressions in real time. Speech activity and timing are also processed locally.
-
-This provides immediate behavioural signals without needing to send every frame to the cloud.
-
-**3. Cloud-based AI analysis**
-
-Through Together AI, SMILE periodically analyses camera snapshots and short speech clips to understand more complex behaviours, such as slouching, distracting gestures, facial tension and filler words.
-
-Cloud analysis calibrates the local tracking and adds contextual understanding.
-
-**4. Adaptive feedback engine**
-
-SMILE prioritises detected behaviours according to their importance. It determines when feedback is necessary, avoids repetitive interruptions and adapts its sensitivity to the user's preferences.
-
-**5. Learning and progress tracking**
-
-Training sessions generate scores, detailed reports and actionable improvements. Session history allows users to compare their performance over time and understand whether their training is translating into better real-world meetings.
-
-### Logitech Hardware Integration
-
-SMILE explores a more intelligent way of interacting with computers by turning the webcam into a multimodal sensing device.
-
-With the **Logitech LogiInsight prototype camera**, SMILE can use its wide-angle infrared feed to improve body tracking, including situations where the user moves outside the visible colour-camera frame. Its machine learning capabilities also offer an opportunity for future on-device processing, reducing the hardware requirements placed on an employee's personal computer.
-
-The **Logitech MX Master 4** provides another dimension to the experience. Through an optional Logi Options+ integration, behavioural warnings can trigger haptic pulses through the mouse.
-
-Instead of displaying distracting notifications or playing sounds during an important client meeting, SMILE can discreetly communicate that something needs attention through a physical interaction that only the user experiences.
-
-This makes feedback more immediate without interrupting the meeting or affecting what other participants see or hear.
-
----
-
-## Screenshots
-
-### The SMILE Companion
-
-The floating companion provides real-time behavioural feedback while remaining unobtrusive and visible only to the user.
-
-![SMILE companion showing live coaching feedback](docs/screenshots/companion.png)
-
-### Application Overview
-
-| Home | Mock Meeting |
+| Home | Mock meeting |
 |---|---|
-| ![Home dashboard](docs/screenshots/home.png) | ![Interactive mock meeting](docs/screenshots/mock-meeting.png) |
+| ![Home page with four big buttons, level, streak, score chart and badges](docs/screenshots/home.png) | ![Mock meeting: the SMILE avatar, your camera, live feedback and the chat](docs/screenshots/mock-meeting.png) |
 | **Results** | **Meet** |
-| ![Performance results](docs/screenshots/results.png) | ![Meeting controls](docs/screenshots/meet.png) |
+| ![Results: overall score, improvements, breakdown and change since last time](docs/screenshots/results.png) | ![Meet page: start a meeting, mute, section timer and how picky SMILE is](docs/screenshots/meet.png) |
 
 ---
 
-## Key Features
+## Built with our partners
 
-### 1. Real-Time Behavioural Coaching
+### Logitech: coaching you can feel, and a camera that thinks
 
-SMILE observes how you present and identifies behaviours that influence how others perceive you.
+SMILE is designed around Logitech hardware, not just compatible with it:
 
-It prioritises feedback in the following order:
+* **[MX Master 4](https://www.logitech.com/en-us/shop/p/mx-master-4) haptic feedback (implemented).** When a live tip pops up, your mouse pulses, so you notice it even while looking at your slides or at the other person, without reading anything. The pulse repeats while the problem lasts (for example while your face stays covered) and stops the moment you fix it. Intensity, speed and duration are set in **Settings → Mouse haptics**. It runs through our own plugin for [Logi Options+](https://www.logitech.com/en-us/software/logi-options-plus) ([setup below](#logitech-mouse-haptics-mx-master-4)).
+* **Logitech webcams (in progress).** SMILE already supports the Logitech LogiInsight camera, including its infrared feed in the debug view ([details](#logitech-logiinsight-webcam)). The next step is to run SMILE's face tracking **on the camera itself** instead of on your computer: lower CPU use, faster reactions, and your video never needs to be processed by the PC at all. See [Logitech webcams](https://www.logitech.com/en-us/shop/c/webcams).
 
-1. **Face visibility:** Detecting when your face is covered or outside the frame.
-2. **Posture and movement:** Identifying slouching, tilted heads and distracting movements.
-3. **Eye contact:** Detecting when you look away from the camera or read for too long.
-4. **Speech habits:** Identifying filler words such as "um", "uh" and "you know".
-5. **Facial engagement:** Recognising prolonged lack of expression or facial tension.
-6. **Holding the floor:** Reminding you to pause and invite questions after speaking for too long.
+### Schole AI: a companion, not a chatbot
 
-The feedback is prioritised to ensure the most important issue is addressed first.
+SMILE is deliberately **not a chatbot**. There's no text box to ask questions and no wall of generated text. Instead, a small, friendly animated companion **teaches you how to come across professionally by reacting to what you actually do**: it pops up for a moment when you slouch, cover your face or forget to smile, then gets out of the way. You learn by practising (rehearsals, a mock meeting with SMILE as the other person) and by seeing your own progress, the way a coach sitting next to you would teach, not by reading answers.
 
-During real meetings, SMILE minimises itself and only displays a reminder when a behavioural issue persists long enough to warrant attention.
+---
 
-### 2. Learn Through Interactive Simulations
+## What SMILE focuses on
 
-SMILE turns presentation training into an active learning experience rather than a passive tutorial.
+Live, SMILE only talks about how you come across on camera, in this order of importance:
 
-Users can choose between three training modes:
+1. **Face covered or out of frame**: a hand over your face, leaning out of the picture.
+2. **Posture and movement**: slouching, a tilted head, fidgeting, distracting hands.
+3. **Eye contact**: looking away from the camera, or reading for too long.
+4. **Filler words**: "um", "uh", "you know".
+5. **Smile and expression**: no smile for a long time, or a tense look.
+6. **Holding the floor**: talking for about 3 minutes without a break for others: *"Pause and ask for questions."*
 
-**Rehearse your presentation**
+Everything else (timing, key points, pace, wording, lighting, clothing) never pops up during a session. It is measured and waits for your results.
 
-Upload your speech or notes. SMILE divides your presentation into sections, identifies key points and allows you to practise the entire talk while tracking your delivery.
+---
 
-**Practise one section**
+## The app
 
-Focus on a particular part of your presentation, receive feedback and repeat it until you improve. Your performance is compared with previous attempts.
+| Page | What it's for |
+|---|---|
+| **Home** | Four big buttons (Practise, Check my setup, Start a meeting, My results) plus your progress: level and XP, day streak, last and best score, a score chart, badges and recent sessions. |
+| **Training** | **Rehearse** your whole talk against your plan; practise **one section** at a time; or run a **mock meeting** with SMILE as the other person (presentation, interview, negotiation, business proposal, sales pitch). |
+| **Setup check** | A live camera preview and a one-click AI check of framing, camera angle, lighting, collar, posture and clutter, with red boxes on what to fix. A live sound check tells you if there's background noise. |
+| **Meet** | Start a real meeting. SMILE minimizes; the small animated companion pops up only when something about your body language needs fixing. |
+| **Results** | Your score, the three most important things to work on, a breakdown you can expand into exact measurements and timestamped moments, and the change since last time. Every earlier session is listed below and can be reopened to compare. |
+| **Settings** | AI key, how picky SMILE is (separately for meetings and training), AI intelligence, camera and microphone, mouse haptics, appearance and debug mode. |
 
-**Mock meetings**
+### Logitech LogiInsight webcam
 
-Enter a simulated video call where an AI avatar plays the role of an interviewer, client, business partner or stakeholder.
+Connect the webcam over USB and choose **Logitech LogiInsight (color)** in **Settings → Camera**. **Check my setup** shows the entire camera frame. In **Settings → Debugging → Open debug view**, select **Show taller view** for the full monochrome image. The button is available while SMILE is using the Logitech color camera and its infrared feed is connected. The preview closes when you switch cameras or close the debug view.
 
-The avatar listens, responds naturally, asks follow-up questions and adapts the conversation to the chosen scenario.
+### Training
 
-Users can practise:
+* **Rehearse**: paste your speech or notes. SMILE splits them into sections with key points, you adjust the sections and target times, then rehearse out loud. Training is graded more strictly than real meetings and gives more feedback.
+* **One section**: practise a single section with your notes in view, get a score and try again, compared with your last attempt.
+* **Mock meeting**: a video-call layout with the SMILE avatar next to your own camera. The avatar plays a role, listens, answers within a few seconds of you finishing, and asks follow-up questions. Behaviour feedback appears under your video, and **"SMILE steps in"** (Never / Light / Balanced / Strict) sets how often the avatar itself comments on a covered face, fidgeting or slouching. A banner warns you when it's too noisy around you. Headphones work best.
 
-- Job interviews.
-- Client pitches.
-- Business proposals.
-- Sales presentations.
-- Negotiations.
-- General presentations.
+SMILE follows which section you're on by **meaning**, not exact words, and judges key points leniently on the idea. If you drift off your plan it notes it for the results.
 
-The goal is to develop good communication habits through realistic practice, not to force users into a rigid set of behavioural rules.
+### During a meeting
 
-### 3. Personalised and Context-Aware Learning
+* There's no long quiet time between pop-ups: a tip shows as soon as its problem lasts long enough. Each kind of tip then waits before it repeats, so nothing nags.
+* **How picky SMILE is** sets how long a problem must last: at the middle setting, 2 s of a covered face, 6 s looking away, 40 s without a smile, 3 minutes talking without a break. At the strictest, the smile reminder comes every few seconds.
+* The most urgent tip always wins: a hidden face replaces anything else on screen.
+* "Talking too long" counts only real turns: short pauses between sentences don't reset it, a few seconds of silence (someone else speaking) does, and it reminds you at most once per 3 minutes.
+* Right-click the companion to **snooze tips for 10 minutes** or **mute all tips** until you unmute them. Mute is also in the tray menu and on the Meet page. Muted sessions are still scored.
+* The companion is always on top but only shows its face area to the mouse, so it doesn't block clicks on your meeting app. Drag it anywhere.
+* An optional section timer can sit next to it (Meet → Options).
+* With an MX Master 4 and our Logi Options+ plugin, every pop-up also pulses the mouse ([setup](#logitech-mouse-haptics-mx-master-4)).
 
-Different people have different roles, goals and communication styles.
+### Scoring
 
-SMILE evaluates users in the context of what they are trying to achieve. A job interview, a client pitch and an internal presentation do not necessarily require the same approach.
-
-Feedback is based on actual behaviour and the situation, rather than a universal yes-or-no checklist.
-
-As users continue training, SMILE tracks their performance, identifies recurring weaknesses and highlights improvements.
-
-### 4. Setup Check
-
-Before an important meeting, SMILE checks whether your environment is ready.
-
-A live camera preview and AI-powered assessment evaluate:
-
-- Camera framing and angle.
-- Lighting.
-- Posture.
-- Collar and clothing.
-- Background clutter.
-
-A separate audio check detects background noise.
-
-The application highlights issues visually so users can correct their setup before joining a call.
-
-### 5. Real-World Meeting Companion
-
-Training is only valuable if it translates into real-world improvement.
-
-SMILE can run alongside your existing video conferencing software without joining the meeting or modifying your outgoing video.
-
-Its floating companion delivers discreet reminders when you need to correct your behaviour.
-
-Users can snooze reminders, mute them entirely or adjust how sensitive the coaching should be. Sessions continue to be evaluated even when reminders are muted.
-
-### 6. Performance Analytics
-
-After each session, users receive a detailed report containing:
-
-- An overall presentation score.
-- The three most important areas to improve.
-- A breakdown of individual performance categories.
-- Detailed measurements and timestamped feedback.
-- Comparison with previous sessions.
-
-The scoring system prioritises the behaviours that have the greatest influence on how a presenter comes across.
+The overall score weighs how you come across most:
 
 | Category | Weight |
-|---|---:|
-| Face and framing | 2.0 |
-| Body language | 2.0 |
-| Facial engagement | 1.5 |
+|---|---|
+| Face & framing (visible, not covered, steady) | 2.0 |
+| Body language (posture, movement, hands) | 2.0 |
+| Facial engagement (warmth; a calm, attentive face counts as good) | 1.5 |
 | Eye contact | 1.5 |
-| Speech delivery | 1.25 |
+| Speech delivery (pace, filler words, pauses, volume) | 1.25 |
 | Professional language | 1.0 |
 | Key points | 0.6 |
 | Timing | 0.5 |
 
-Users can track their level, XP, streaks, badges and score progression, making improvement measurable and motivating.
+A covered face or disturbing movement also caps the overall score, so good timing can't make up for it. Training sessions need a higher score for the same rating.
 
 ---
 
-## Installation & Setup
+## How SMILE watches and listens
 
-### Download
+| | On your computer | In the cloud (Together AI) |
+|---|---|---|
+| Camera | YuNet face tracker (~15×/s): position, landmarks, head direction. FER+ expression model (~5×/s): smile and expression. | Vision model every 2 s (adjustable to 1 s) and immediately when the tracker sees a change: posture, hands, covered face, tension. |
+| Voice | Speech detection tuned to ignore background noise, talk time, pauses, speaking rate, noise level. | Whisper: exact words, filler words, words per minute. |
 
-Download the latest release for your operating system from the [GitHub Releases](../../releases) page.
+The cloud results calibrate the local ones as you go. **Debug mode** (Settings) shows the tracking points, live values, raw AI answers and the reason behind every tip.
 
-| Operating System | Build |
-|---|---|
-| Windows | `.zip` |
-| macOS | Universal `.dmg` |
-| Linux | `.AppImage` |
+---
 
-Extract or install the application and launch SMILE.
+## Installation and setup
 
-### 1. Configure the AI Coach
+### 1. Install SMILE
 
-SMILE uses [Together AI](https://together.ai) for its cloud-based AI coaching features.
+Download the latest build from the [releases page](../../releases):
 
-1. Create an account at [Together AI](https://together.ai).
-2. Generate an API key.
-3. Open SMILE.
-4. Navigate to **Settings → AI Coach**.
-5. Paste your API key.
+| System | File | How to start it |
+|---|---|---|
+| Windows | `SMILE-windows-x64.zip` | Unzip it anywhere and run `SMILE.exe`. |
+| macOS | `SMILE-macos-universal.dmg` | Open it and drag SMILE to Applications. The first time, right-click SMILE and choose **Open** (the app is not notarised yet). Allow camera and microphone access when asked. |
+| Linux | `SMILE-linux-x86_64.AppImage` | `chmod +x SMILE-linux-x86_64.AppImage`, then run it. |
 
-Alternatively, provide the key through the `TOGETHER_API_KEY` environment variable or a `.env` file.
+### 2. Add your AI key
 
-The API key is stored locally and is never embedded in the application or committed to the repository.
+SMILE's smart features (posture, covered face, filler words, the setup check, the mock meeting and written feedback) use [Together AI](https://together.ai). Face tracking, expression, timing and speech rhythm work without a key.
 
-**AI intelligence settings**
+1. Create an account at [together.ai](https://together.ai) and create an API key in your Together dashboard.
+2. In SMILE, open **Settings → AI coach**, paste the key and click **Save**.
+3. Click **Test connection**. A green message means you're ready.
 
-| Mode | Models | Approximate cost |
-|---|---|---:|
-| Standard | NVIDIA Nemotron 3.5 Super VL + GPT-OSS-120B | $0.15–0.25/hour |
-| Enhanced | Kimi K3 | ~5× Standard |
-| Maximum | Kimi K3.1 Pro | ~15× Standard |
+The key is stored only on your computer and is **never** built into the app or committed to git. Developers can also provide it, in this order of priority after the app setting, through the `TOGETHER_API_KEY` environment variable or a `.env` file next to the app (copy `.env.example` to `.env`; `.env` is git-ignored).
 
-Speech recognition always uses Whisper Large v3. Mock meeting conversations use GPT-OSS-120B, and the speaking avatar uses Kokoro-82M.
+### 3. Check your setup
 
-### 2. Configure Your Camera and Microphone
+Open **Setup check**, click **Check my setup**, and fix anything marked in red. The sound check tells you if your room is too noisy. Then start practising in **Training**.
 
-Open **Settings → Camera** and select your webcam.
+### Logitech mouse haptics (MX Master 4)
 
-For the Logitech LogiInsight prototype:
+Optional: let your [MX Master 4](https://www.logitech.com/en-us/shop/p/mx-master-4) vibrate with every live tip.
 
-1. Connect the camera through USB.
-2. Select **Logitech LogiInsight (color)** under Settings → Camera.
-3. Open **Check my setup** to view the full camera frame.
-4. For the infrared feed, open **Settings → Debugging → Open debug view** and enable **Show taller view**.
+1. Install [Logi Options+](https://www.logitech.com/en-us/software/logi-options-plus) (with Logi Plugin Service 6.4 or newer) and the .NET 10 SDK.
+2. In [`integrations/logi-haptics`](integrations/logi-haptics), run `dotnet build -c Release`.
+3. Create a text file `SmileHaptics.link` containing the full path of that folder's `build/Release` directory, and put it in `%LOCALAPPDATA%\Logi\LogiPluginService\Plugins` (Windows) or `~/Library/Application Support/Logi/LogiPluginService/Plugins` (macOS).
+4. Restart Logi Plugin Service from the Logi Options+ settings, and enable haptics for **SMILE Haptics** in the MX Master 4 settings if needed.
+5. In SMILE, turn on **Settings → Mouse haptics → Mouse vibration** and choose intensity, speed and duration.
 
-The infrared preview is available while the Logitech colour camera is active and its infrared feed is connected.
+SMILE talks to the plugin only on your own computer (`127.0.0.1`); the plugin accepts no outside traffic. Full details are in the [plugin README](integrations/logi-haptics/README.md).
 
-Select your microphone under Settings and complete the audio check.
+### AI intelligence and models
 
-### 3. Install the Logitech MX Master 4 Haptic Plugin (Optional)
+Choose in **Settings → Coaching → AI intelligence**:
 
-SMILE supports optional haptic feedback through the Logitech MX Master 4.
+| Level | Models | Cost |
+|---|---|---|
+| Standard (default) | `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (camera), `openai/gpt-oss-120b` (text) | about $0.15–0.25 per hour |
+| Enhanced | `moonshotai/Kimi-K3` | ~5× |
+| Maximum | `moonshotai/Kimi-K3.1-Pro` | ~15× |
 
-1. Connect your MX Master 4.
-2. Navigate to [`integrations/logi-haptics`](integrations/logi-haptics).
-3. Follow the integration instructions to install the Logi Options+ plugin.
-4. Enable the integration and test the haptic feedback.
+Speech always uses `openai/whisper-large-v3`, the mock meeting's conversation always uses the fast `gpt-oss-120b`, the avatar speaks with `hexgrad/Kokoro-82M`, and the setup check always uses the quick vision model so it answers in a second or two.
 
-Once configured, SMILE can send discreet haptic pulses through the mouse when it detects behaviours that require attention.
+---
 
-### 4. Start Improving
+## Future extensions: a coach that adapts to you
 
-Once configured, open SMILE and choose one of the four main actions:
+Our main focus is **adaptability**: SMILE should learn who you are, where you present and what you need, instead of applying one rulebook to everyone.
 
-- **Practise:** Train using a presentation or mock meeting.
-- **Check my setup:** Prepare your camera and environment.
-- **Start a meeting:** Activate the live companion.
-- **My results:** Review your performance and progress.
+* **Remember your habits.** Keep a private, on-device memory of *your* recurring tics (touching your face, looking down when nervous, saying "basically") and coach those first, with exercises aimed at them.
+* **Learn from you.** Train the on-device models on your own sessions, so "your calm face", "your normal posture" and "your voice" are recognised more accurately over time.
+* **Cultures and traditions.** Coaching norms differ: some cultures consider frequent smiling or direct eye contact rude, others expect them. Let users pick (or SMILE infer) the cultural context of a meeting and adjust what is coached and how strictly.
+* **More languages.** Filler words, hedging and professional wording in many languages, not just English.
+* **More body language.** Hand gestures, shoulder tension, nodding, blinking, leaning, posture over time, and how you react while others speak.
+* **More speech tics.** Up-talk, rushed sentence endings, monotone delivery, repeated phrases and interruptions.
+* **Feedback on the content.** Beyond delivery: clarity of the message, structure, strength of arguments and answers to likely questions, based on your plan and what you actually said.
+* **Better and faster models.** Run more of the analysis on-device (and on the [Logitech webcam](https://www.logitech.com/en-us/shop/c/webcams) itself) for instant, private feedback, and use stronger models for the reviews as they become affordable.
+* **Rewards that keep you going.** Grow the levels, streaks and badges into personal goals, challenges and milestones tied to the habits you are working on.
+* **Hardware feedback.** Richer haptic patterns on the MX Master 4 so different problems feel different, and quiet LED or camera-light cues.
 
-### Building from Source
+---
 
-Requirements:
+## Privacy
 
-- CMake 3.21+
-- C++17 compiler
-- Qt 6.8+ (Widgets, Multimedia, Network)
-- Python 3
+* Video and audio are processed on your computer. While a session runs, a small snapshot every couple of seconds and short speech clips are sent to Together AI over HTTPS for analysis. Nothing is stored in the cloud. Switch **Analyse with AI** off in Settings to keep everything local.
+* Nothing is recorded to disk. Session results (scores and the written report, no video or audio) are saved on your computer only, and **Results → Delete history** removes them.
+* There are no accounts.
+
+---
+
+## Building from source
+
+Requirements: CMake 3.21+, a C++17 compiler, Qt 6.8+ (Widgets, Multimedia, Network) and Python 3.
 
 ```bash
 python3 scripts/fetch_onnxruntime.py
-
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-
 cmake --build build -j
-
 ./build/SMILE
 ```
 
-ONNX Runtime is loaded at runtime, so SMILE can still launch without it, although on-device tracking will be unavailable.
+ONNX Runtime is loaded at run time, so SMILE still starts without it (without on-device tracking). The FER+ expression model is downloaded and checked by CMake at configure time. GitHub Actions builds and publishes all three platforms when a `vX.Y.Z` tag is pushed.
 
-### Project Structure
+Handy environment variables: `SMILE_THEME=light|dark`, `SMILE_COMPANION_INPROCESS=1` (run the companion inside the main process), `SMILE_MUTE_AUDIO=1` (silent avatar, for demos and tests).
 
-```text
-src/
-  app/          Main window and application pages
-  companion/    Floating companion and avatar
-  core/         Session controller, settings and reports
-  sensors/      Camera and microphone
-  vision/       Face tracking and expression recognition
-  ai/           AI client, vision, speech and mock meetings
-  ui/           Themes and interface components
+### Layout
 
-integrations/
-  logi-haptics/ Logitech Options+ haptic integration
-
-docs/
-  screenshots/  Application screenshots
+```
+src/app         main window, pages (Home, Training, Setup check, Meet, Results, Settings), session history
+src/companion   the floating companion (separate process) and its avatar
+src/core        session controller, settings, tips, reports
+src/sensors     camera and microphone
+src/vision      on-device face tracking and expression model
+src/ai          Together AI client, vision and speech coaching, mock meeting, key-point judge
+src/ui          theme and widgets
+integrations    Logi Options+ plugin for mouse haptics
 ```
 
----
-
-## Future
-
-SMILE aims to make personalised communication coaching accessible to anyone who needs to communicate effectively online.
-
-Some of the directions we want to explore next include:
-
-### More Intelligent Hardware Integration
-
-Further development of Logitech LogiInsight's infrared sensing and on-device machine learning capabilities could allow SMILE to perform more advanced body tracking with less dependence on cloud processing or powerful personal computers.
-
-We also want to explore richer haptic feedback patterns through the MX Master ecosystem, allowing different behavioural issues to be communicated through distinct, discreet physical signals.
-
-### More Adaptive Learning Experiences
-
-We want to make training increasingly personalised by taking into account each user's professional role, objectives, experience and previous performance.
-
-Future simulations could adapt their difficulty, scenarios and feedback dynamically as users improve.
-
-### Closing the Gap Between Training and Real Meetings
-
-One of our biggest ambitions is to better understand how improvements made during training translate into real-world performance.
-
-By comparing mock meetings with actual meeting sessions, SMILE can help users identify which habits they have successfully developed and which still need attention.
-
-### Organisational Deployment
-
-SMILE has the potential to become a training tool for organisations that want to improve the communication skills of employees in client-facing and high-stakes roles.
-
-With privacy-conscious processing, local tracking and hardware-assisted intelligence, we want to make personalised presentation coaching scalable without turning workplace meetings into monitored performances.
-
----
-
-**SMILE — because great communication is a skill you can practise.**
 ---
 
 <sub>*S.M.I.L.E.: because being Supercalifragilisticexpialidocious in meetings takes practice.*</sub>

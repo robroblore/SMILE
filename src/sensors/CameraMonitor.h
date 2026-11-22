@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QCameraDevice>
 #include <QElapsedTimer>
 #include <QImage>
 #include <QMediaCaptureSession>
@@ -60,7 +61,9 @@ public:
     enum class DeviceKind { Standard, LogiInsightColor, LogiInsightInfrared, LogiInsightHello };
 
     explicit CameraMonitor(QObject *parent = nullptr, Input input = Input::Coaching);
-    static DeviceKind deviceKind(const QString &description);
+    static DeviceKind deviceKind(const QCameraDevice &device);
+    static QByteArray deviceKey(const QByteArray &id);
+    static QList<QCameraDevice> videoInputs();
     static bool hasLogiInsightInfrared();
     ~CameraMonitor() override;
 

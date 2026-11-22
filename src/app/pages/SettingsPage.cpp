@@ -352,15 +352,16 @@ void SettingsPage::fillDevices()
     const AppSettings &settings = AppSettings::instance();
     m_cameraCombo->clear();
     m_cameraCombo->addItem(tr("System default"), QByteArray());
-    for (const QCameraDevice &d : QMediaDevices::videoInputs()) {
-        const auto kind = CameraMonitor::deviceKind(d.description());
+    const QByteArray selectedCamera = CameraMonitor::deviceKey(settings.cameraId());
+    for (const QCameraDevice &d : CameraMonitor::videoInputs()) {
+        const auto kind = CameraMonitor::deviceKind(d);
         if (kind == CameraMonitor::DeviceKind::LogiInsightInfrared
             || kind == CameraMonitor::DeviceKind::LogiInsightHello)
             continue;
         const QString label = kind == CameraMonitor::DeviceKind::LogiInsightColor
             ? tr("Logitech LogiInsight (color)") : d.description();
         m_cameraCombo->addItem(label, d.id());
-        if (d.id() == settings.cameraId())
+        if (CameraMonitor::deviceKey(d.id()) == selectedCamera)
             m_cameraCombo->setCurrentIndex(m_cameraCombo->count() - 1);
     }
     m_micCombo->clear();

@@ -20,6 +20,8 @@ namespace {
 constexpr int kMaxWidth = 960;      // plenty for preview and analysis
 constexpr int kDetectEveryMs = 66;  // ~15 face detections per second
 constexpr int kExpressionEveryMs = 180; // ~5 expression reads per second
+constexpr char kLogiInsightUsbId[] = "usb#vid_046d&pid_094f&mi_";
+constexpr char kSensorInterface[] = "#{24e552d7-6523-47f7-a647-d3465bf1f5ca}";
 } // namespace
 
 // ---------------------------------------------------------------- FrameWorker
@@ -155,9 +157,17 @@ bool CameraMonitor::faceTrackingAvailable() const
     return FaceDetector::libraryAvailable();
 }
 
-CameraMonitor::DeviceKind CameraMonitor::deviceKind(const QString &description)
+CameraMonitor::DeviceKind CameraMonitor::deviceKind(const QCameraDevice &device)
 {
-    const QString name = description.simplified();
+    const QByteArray id = device.id().toLower();
+    if (id.contains(QByteArrayLiteral("usb#vid_046d&pid_094f&mi_00#")))
+        return DeviceKind::LogiInsightColor;
+    if (id.contains(QByteArrayLiteral("usb#vid_046d&pid_094f&mi_04#")))
+        return DeviceKind::LogiInsightInfrared;
+    if (id.contains(QByteArrayLiteral("usb#vid_046d&pid_094f&mi_02#")))
+        return DeviceKind::LogiInsightHello;
+
+    const QString name = device.description().simplified();
     if (name.compare(QLatin1String("LVNext Camera"), Qt::CaseInsensitive) == 0)
         return DeviceKind::LogiInsightColor;
     if (name.compare(QLatin1String("LVNext CPD Camera"), Qt::CaseInsensitive) == 0)
@@ -167,11 +177,37 @@ CameraMonitor::DeviceKind CameraMonitor::deviceKind(const QString &description)
     return DeviceKind::Standard;
 }
 
+QByteArray CameraMonitor::deviceKey(const QByteArray &id)
+{
+    const QByteArray lower = id.toLower();
+    const auto category = lower.indexOf("#{");
+    // Windows can advertise the same LogiInsight USB interface under both
+    // video capture and sensor camera categories.
+    return category >= 0 && lower.contains(kLogiInsightUsbId) ? lower.left(category) : id;
+}
+
+QList<QCameraDevice> CameraMonitor::videoInputs()
+{
+    QList<QCameraDevice> cameras;
+    for (const QCameraDevice &camera : QMediaDevices::videoInputs()) {
+        const QByteArray key = deviceKey(camera.id());
+        const auto existing = std::find_if(cameras.begin(), cameras.end(), [&](const QCameraDevice &entry) {
+            return deviceKey(entry.id()) == key;
+        });
+        if (existing == cameras.end()) {
+            cameras.append(camera);
+        } else if (existing->id().toLower().contains(kSensorInterface)) {
+            *existing = camera;
+        }
+    }
+    return cameras;
+}
+
 bool CameraMonitor::hasLogiInsightInfrared()
 {
-    const auto cameras = QMediaDevices::videoInputs();
+    const auto cameras = videoInputs();
     return std::any_of(cameras.cbegin(), cameras.cend(), [](const QCameraDevice &camera) {
-        return deviceKind(camera.description()) == DeviceKind::LogiInsightInfrared;
+        return deviceKind(camera) == DeviceKind::LogiInsightInfrared;
     });
 }
 
@@ -220,13 +256,13 @@ void CameraMonitor::startCamera()
 #endif
 
     const bool infrared = m_input == Input::LogiInsightInfrared;
-    const QCameraDevice defaultDevice = QMediaDevices::defaultVideoInput();
-    const QByteArray preferred = AppSettings::instance().cameraId();
-    const auto cameras = QMediaDevices::videoInputs();
+    const QByteArray defaultKey = deviceKey(QMediaDevices::defaultVideoInput().id());
+    const QByteArray preferred = deviceKey(AppSettings::instance().cameraId());
+    const auto cameras = videoInputs();
     QCameraDevice device;
     QCameraDevice fallback;
     for (const QCameraDevice &candidate : cameras) {
-        const auto kind = deviceKind(candidate.description());
+        const auto kind = deviceKind(candidate);
         if (infrared) {
             if (kind == DeviceKind::LogiInsightInfrared) {
                 device = candidate;
@@ -237,11 +273,12 @@ void CameraMonitor::startCamera()
         if (kind == DeviceKind::LogiInsightInfrared || kind == DeviceKind::LogiInsightHello)
             continue;
 
-        if (candidate.id() == preferred) {
+        const QByteArray key = deviceKey(candidate.id());
+        if (key == preferred) {
             device = candidate;
             break;
         }
-        if (candidate == defaultDevice)
+        if (key == defaultKey)
             device = candidate;
         if (fallback.isNull() || kind == DeviceKind::LogiInsightColor)
             fallback = candidate;
@@ -254,7 +291,7 @@ void CameraMonitor::startCamera()
     }
 
     m_camera = new QCamera(device, this);
-    const bool logiColor = deviceKind(device.description()) == DeviceKind::LogiInsightColor;
+    const bool logiColor = deviceKind(device) == DeviceKind::LogiInsightColor;
     auto score = [infrared, logiColor](const QCameraFormat &format) {
         const QSize size = format.resolution();
         const double fps = qMin<double>(format.maxFrameRate(), 30.0);

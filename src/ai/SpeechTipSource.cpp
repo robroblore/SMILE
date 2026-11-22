@@ -37,6 +37,7 @@ void SpeechTipSource::start()
     m_running = true;
     m_session.start();
     m_monologueTipped = false;
+    m_turn = TalkTurn();
     m_wasSpeaking = false;
     m_fastSince = -1;
     m_lastTip.clear();
@@ -126,16 +127,15 @@ void SpeechTipSource::poll()
     const double speechMinutes = m_mic->speechMs() / 60000.0;
     v.pausesPerMinute = speechMinutes > 0.25 ? int(m_mic->pauseCount() / speechMinutes) : 0;
 
-    // --- Monologue
-    const qint64 run = m_mic->currentRunMs();
-    if (run == 0) {
-        m_monologueTipped = false;
-    } else if (run >= t.monologueSeconds * 1000LL && !m_monologueTipped) {
-        m_monologueTipped = true;
+    // --- Holding the floor too long: you've talked most of the last few minutes
+    // without a break where someone else could come in
+    if (m_turn.update(now(), v.speaking, m_mic->speechMs(), t.monologueSeconds * 1000LL)) {
+        const qint64 minutes = qMax<qint64>(1, qRound(m_turn.lastTurnLengthMs() / 60000.0));
         tip(QStringLiteral("monologue"), TipCategory::Speech, TipSeverity::Info,
-            tr("You've been talking for %1 minutes. Pause and invite questions.").arg(qMax<qint64>(1, run / 60000)),
-            tr("Speech detected for %1 s with no pause longer than 1.5 s (limit %2 s).")
-                .arg(run / 1000)
+            tr("You've talked for %n minute(s). Pause and ask for questions.", nullptr, int(minutes)),
+            tr("You spoke for most of the last %1 s without a %2 s break for others (limit %3 s).")
+                .arg(m_turn.lastTurnLengthMs() / 1000)
+                .arg(TalkTurn::kBreakMs / 1000)
                 .arg(t.monologueSeconds));
     }
 

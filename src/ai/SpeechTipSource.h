@@ -6,6 +6,7 @@
 #include <QMap>
 #include <QTimer>
 
+#include "core/TalkTurn.h"
 #include "core/TipSource.h"
 
 class AiClient;
@@ -56,6 +57,7 @@ private:
     bool m_running = false;
     bool m_acquired = false;
     bool m_monologueTipped = false;
+    TalkTurn m_turn; // how long you have held the floor
     bool m_wasSpeaking = false;
     qint64 m_fastSince = -1;
     QHash<QString, QElapsedTimer> m_lastTip;

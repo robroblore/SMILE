@@ -316,17 +316,18 @@ void SettingsPage::describeSensitivity()
 {
     const AppSettings &settings = AppSettings::instance();
     auto line = [](const AppSettings::Thresholds &t) {
-        return tr("face hidden %1 s · looking away %2 s · slouching %3 s · %4 fillers/min · tips ≥ %5 s apart")
+        return tr("face hidden %1 s · looking away %2 s · no smile %3 s · slouching %4 s · %5 fillers/min · "
+                  "talking %6 min without a break")
             .arg(t.faceCoveredSeconds)
             .arg(t.lookAwaySeconds)
+            .arg(t.noSmileSeconds * 2)
             .arg(t.postureSeconds)
             .arg(t.fillersPerMinute)
-            .arg(t.meetingGapSeconds);
+            .arg(t.monologueSeconds / 60.0, 0, 'g', 2);
     };
-    const AppSettings::Thresholds live = AppSettings::thresholdsFor(settings.liveLevel());
-    AppSettings::Thresholds training = AppSettings::thresholdsFor(settings.trainingLevel());
-    training.meetingGapSeconds = training.trainingGapSeconds;
-    m_sensitivityText->setText(tr("Meetings: %1\nTraining: %2").arg(line(live), line(training)));
+    m_sensitivityText->setText(tr("Meetings: %1\nTraining: %2")
+                                   .arg(line(AppSettings::thresholdsFor(settings.liveLevel())),
+                                        line(AppSettings::thresholdsFor(settings.trainingLevel()))));
 }
 
 void SettingsPage::refreshKeyStatus()

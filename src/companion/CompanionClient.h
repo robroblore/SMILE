@@ -66,5 +66,5 @@ private:
     // Last known state, replayed if the companion restarts
     bool m_sessionActive = false;
     bool m_timerVisible = false;
-    int m_gapMs = 45000;
+    int m_gapMs = 3000;
 };

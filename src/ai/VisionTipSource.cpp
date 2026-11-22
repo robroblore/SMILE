@@ -545,7 +545,10 @@ void VisionTipSource::onTick()
     // Face covered: the cloud sees a hand/object over it, or the local tracker
     // lost the face while the cloud still sees the person
     const bool cloudCovered = fresh && m_cloud.value(QLatin1String("face_covered")).toBool();
-    const bool trackerLost = localFresh && face == 0 && !turnedAway && fresh && m_cloud.value(QLatin1String("face_visible")).toBool(true);
+    // The tracker must have had your face and lost it for a moment (not just be
+    // starting up, or miss a frame) while the cloud still sees you
+    const bool trackerLost = localFresh && face == 0 && !turnedAway && m_lastFoundAt >= 0 && nowMs - m_lastFoundAt >= 500
+                             && fresh && m_cloud.value(QLatin1String("face_visible")).toBool(true);
     const bool coveredNow = cloudCovered || trackerLost;
     const bool wasCovered = m_coveredSince >= 0;
     steady(m_coveredSince, m_coveredSeen, coveredNow, 2500);

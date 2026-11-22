@@ -224,13 +224,13 @@ AppSettings::Thresholds AppSettings::thresholdsFor(int level)
 {
     const int i = qBound(1, level, 5) - 1;
     //                         relaxed  …          strict
-    static const int cold[] = {45, 30, 20, 12, 8};
+    static const int cold[] = {45, 30, 20, 10, 3};   // no smile for twice this: 90…40 (medium)…6 s
     static const int look[] = {12, 8, 6, 4, 3};
     static const int face[] = {10, 6, 4, 3, 2};
     static const int posture[] = {20, 12, 8, 5, 4};
     static const int wpm[] = {190, 180, 175, 168, 162};
     static const int fillers[] = {8, 6, 4, 3, 2};
-    static const int monologue[] = {240, 180, 120, 90, 60};
+    static const int monologue[] = {300, 240, 180, 120, 90}; // talking without letting others in
     static const int repeat[] = {150, 90, 60, 40, 25};
     static const int meetingGap[] = {90, 60, 40, 25, 15}; // level 3: about one tip per 40 s
     static const int trainingGap[] = {40, 25, 15, 10, 6};

@@ -19,7 +19,7 @@ QString categoryName(TipCategory category)
     case TipCategory::Speech:
         return QCoreApplication::translate("Tip", "Speech");
     case TipCategory::Appearance:
-        return QCoreApplication::translate("Tip", "Appearance");
+        return QCoreApplication::translate("Tip", "Face & framing");
     case TipCategory::Content:
         return QCoreApplication::translate("Tip", "Key points");
     case TipCategory::Language:
@@ -50,6 +50,7 @@ int livePriority(const Tip &tip)
         {QStringLiteral("eyes"), 4},          {QStringLiteral("notes"), 4},
         {QStringLiteral("fillers"), 5},       {QStringLiteral("cold"), 6},
         {QStringLiteral("flat"), 6},          {QStringLiteral("nosmile"), 6},
+        {QStringLiteral("monologue"), 7},
     };
     if (tip.source == QLatin1String("demo"))
         return 9;
@@ -69,7 +70,11 @@ int repeatCooldownMs(const QString &key)
 {
     // Urgent ones may come back soon if the problem comes back; others wait the
     // strictness setting's cooldown
-    if (isUrgentTip(key))
-        return 15000;
+    if (isUrgentTip(key)) {
+        // The pickier the setting, the sooner it may remind you again (medium: 15 s)
+        static const int urgent[] = {20000, 18000, 15000, 10000, 5000};
+        const AppSettings &s = AppSettings::instance();
+        return urgent[qBound(1, s.trainingActive() ? s.trainingLevel() : s.liveLevel(), 5) - 1];
+    }
     return AppSettings::instance().thresholds().repeatCooldownSeconds * 1000;
 }

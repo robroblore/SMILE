@@ -41,6 +41,10 @@
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
 
+namespace {
+constexpr int kBubbleSpacingMs = 3000;
+} // namespace
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_controller(new SessionController(this))
@@ -148,8 +152,9 @@ MainWindow::MainWindow(QWidget *parent)
             m_timerTick->stop();
         updateCompanionTimer();
         const bool meeting = running && m_controller->mode() == SessionMode::Meeting;
-        const AppSettings::Thresholds t = AppSettings::instance().thresholds();
-        m_companion->setMinimumGap((meeting ? t.meetingGapSeconds : t.trainingGapSeconds) * 1000);
+        // No long quiet time between pop-ups: each kind of tip has its own repeat
+        // cooldown instead. A few seconds just keep two bubbles from overlapping.
+        m_companion->setMinimumGap(kBubbleSpacingMs);
         if (running && AppSettings::instance().debugMode())
             showDebug();
         if (meeting) {

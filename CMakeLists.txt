@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(SMILE
-    VERSION 1.1.0
+    VERSION 1.2.0
     DESCRIPTION "Smart Meeting Interactive Live Education"
     LANGUAGES CXX)
 
@@ -32,6 +32,7 @@ qt_add_executable(smile WIN32 MACOSX_BUNDLE
     src/core/Coverage.h
     src/core/Coverage.cpp
     src/core/Plural.h
+    src/core/TalkTurn.h
     src/core/LiveSignals.h
     src/core/LiveSignals.cpp
     src/core/HapticMouse.h

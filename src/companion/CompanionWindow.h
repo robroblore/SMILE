@@ -90,7 +90,7 @@ private:
     QElapsedTimer m_pendingAge;
     QElapsedTimer m_sinceHidden;
     QDeadlineTimer m_snoozedUntil;
-    int m_gapMs = 45000;
+    int m_gapMs = 3000;
     bool m_sessionActive = false;
     bool m_livePresentationPending = false;
     bool m_liveTipOnScreen = false;

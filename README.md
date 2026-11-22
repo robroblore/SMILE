@@ -8,6 +8,14 @@ SMILE is a desktop coach that helps you **correct your body behaviour in online 
 
 **Download:** Windows (`.zip`), macOS (universal `.dmg`) and Linux (`.AppImage`) builds are attached to every [GitHub release](../../releases).
 
+<p align="center"><img src="docs/screenshots/companion.png" alt="The SMILE companion with three live tips: face covered, smile more, pause for questions" width="760"></p>
+
+| Home | Mock meeting |
+|---|---|
+| ![Home page with four big buttons, level, streak, score chart and badges](docs/screenshots/home.png) | ![Mock meeting: the SMILE avatar, your camera, live feedback and the chat](docs/screenshots/mock-meeting.png) |
+| **Results** | **Meet** |
+| ![Results: overall score, improvements, breakdown and change since last time](docs/screenshots/results.png) | ![Meet page: start a meeting, mute, section timer and how picky SMILE is](docs/screenshots/meet.png) |
+
 ---
 
 ## What SMILE focuses on
@@ -18,7 +26,8 @@ Live, SMILE only talks about how you come across on camera, in this order of imp
 2. **Posture and movement**: slouching, a tilted head, fidgeting, distracting hands.
 3. **Eye contact**: looking away from the camera, or reading for too long.
 4. **Filler words**: "um", "uh", "you know".
-5. **Smile and expression**: looking tense or flat for a long time.
+5. **Smile and expression**: no smile for a long time, or a tense look.
+6. **Holding the floor**: talking for about 3 minutes without a break for others: *"Pause and ask for questions."*
 
 Everything else (timing, key points, pace, wording, lighting, clothing) never pops up during a session. It is measured and waits for your results.
 
@@ -45,8 +54,10 @@ SMILE follows which section you're on by **meaning**, not exact words, and judge
 
 ### During a meeting
 
-* Default: no more than about one tip every 40 seconds. Move the **"How picky SMILE is"** slider to change it.
-* The most urgent tip always wins: a hidden face jumps ahead of anything else.
+* There's no long quiet time between pop-ups: a tip shows as soon as its problem lasts long enough. Each kind of tip then waits before it repeats, so nothing nags.
+* **How picky SMILE is** sets how long a problem must last: at the middle setting, 2 s of a covered face, 6 s looking away, 40 s without a smile, 3 minutes talking without a break. At the strictest, the smile reminder comes every few seconds.
+* The most urgent tip always wins: a hidden face replaces anything else on screen.
+* "Talking too long" counts only real turns: short pauses between sentences don't reset it, a few seconds of silence (someone else speaking) does, and it reminds you at most once per 3 minutes.
 * Right-click the companion to **snooze tips for 10 minutes** or **mute all tips** until you unmute them. Mute is also in the tray menu and on the Meet page. Muted sessions are still scored.
 * The companion is always on top but only shows its face area to the mouse, so it doesn't block clicks on your meeting app. Drag it anywhere.
 * An optional section timer can sit next to it (Meet → Options).

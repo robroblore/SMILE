@@ -155,19 +155,12 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
         debugToggle));
     connect(debugToggle, &QAbstractButton::toggled, &settings, &AppSettings::setDebugMode);
     auto *hapticCard = new Card(tr("Mouse haptics"));
-    auto *hapticToggle = new ToggleSwitch;
-    hapticToggle->setChecked(settings.hapticFeedbackEnabled());
-    hapticCard->body()->addWidget(new OptionRow(
-        tr("Simulate mouse haptics"),
-        tr("Log a simulated mouse pulse when a coaching tip appears during a meeting."),
-        hapticToggle));
-    connect(hapticToggle, &QAbstractButton::toggled, &settings, &AppSettings::setHapticFeedbackEnabled);
     auto *physicalHaptics = new ToggleSwitch;
     physicalHaptics->setChecked(settings.physicalHapticsEnabled());
     hapticCard->body()->addWidget(new OptionRow(
-        tr("Play mouse haptics"),
-        tr("Pulse an MX Master 4 for visible meeting coaching tips. Requires the SMILE plugin in Logi Options+. "
-           "Overrides simulation while on."),
+        tr("Mouse vibration"),
+        tr("Vibrate when a coaching tip appears in Training or Meet. Requires an MX Master 4 "
+           "and the SMILE plugin in Logi Options+."),
         physicalHaptics));
     connect(physicalHaptics, &QAbstractButton::toggled, &settings, &AppSettings::setPhysicalHapticsEnabled);
     auto addHapticSetting = [hapticCard](const QString &title, const QString &description, QWidget *control) {

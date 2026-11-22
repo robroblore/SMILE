@@ -98,8 +98,6 @@ public:
     void setAvatarVoice(const QString &voice);
     QString speechModel() const;
     QString dialogueModel() const; // fast model for the live simulation conversation
-    bool hapticFeedbackEnabled() const;
-    void setHapticFeedbackEnabled(bool on);
     bool physicalHapticsEnabled() const;
     void setPhysicalHapticsEnabled(bool on);
     int hapticDurationSeconds() const;

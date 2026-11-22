@@ -186,22 +186,13 @@ MainWindow::~MainWindow()
 
 void MainWindow::notifyHaptics(const Tip &tip)
 {
-    if (!m_controller->isRunning() || m_controller->mode() != SessionMode::Meeting
-        || tip.severity == TipSeverity::Positive || tip.source == QLatin1String("demo")
-        || !m_controller->isCategoryShownLive(tip.category))
-        return;
-
     const auto &settings = AppSettings::instance();
-    if (!settings.physicalHapticsEnabled()) {
-        if (settings.hapticFeedbackEnabled())
-            HapticMouse::requestPulse(tip.category);
+    if (!settings.physicalHapticsEnabled() || !m_controller->isRunning()
+        || tip.source == QLatin1String("demo"))
         return;
-    }
 
-    if (!tip.warningId.isEmpty()) {
+    if (m_controller->isWarningActive(tip)) {
         const QString key = tip.source + QLatin1Char(':') + tip.warningId;
-        if (!m_controller->isWarningActive(tip) || m_hapticWarnings.contains(key))
-            return;
         ActiveHapticWarning warning{tip, {}};
         warning.sinceFirstPulse.start();
         m_hapticWarnings.insert(key, warning);

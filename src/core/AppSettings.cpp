@@ -117,7 +117,10 @@ bool AppSettings::useCamera() const
 
 void AppSettings::setUseCamera(bool on)
 {
+    if (useCamera() == on)
+        return;
     store("sensors/camera", on);
+    emit cameraSettingsChanged();
     emit changed();
 }
 
@@ -150,7 +153,10 @@ QByteArray AppSettings::cameraId() const
 
 void AppSettings::setCameraId(const QByteArray &id)
 {
+    if (cameraId() == id)
+        return;
     store("sensors/cameraId", id);
+    emit cameraSettingsChanged();
     emit changed();
 }
 

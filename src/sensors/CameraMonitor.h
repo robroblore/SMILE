@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QCameraDevice>
 #include <QElapsedTimer>
 #include <QImage>
 #include <QMediaCaptureSession>
@@ -22,7 +23,7 @@ class FrameWorker : public QObject
 {
     Q_OBJECT
 public:
-    FrameWorker();
+    explicit FrameWorker(bool trackFaces);
     ~FrameWorker() override;
     std::atomic<bool> busy{false};
     bool faceTrackingAvailable() const { return m_available; }
@@ -38,6 +39,7 @@ signals:
 private:
     void detect(const QImage &image);
 
+    const bool m_trackFaces;
     std::unique_ptr<FaceDetector> m_detector; // created on the worker thread
     std::unique_ptr<ExpressionModel> m_expression;
     QElapsedTimer m_lastExpression;
@@ -55,12 +57,20 @@ class CameraMonitor : public QObject
     Q_OBJECT
 
 public:
-    explicit CameraMonitor(QObject *parent = nullptr);
+    enum class Input { Coaching, LogiInsightInfrared };
+    enum class DeviceKind { Standard, LogiInsightColor, LogiInsightInfrared, LogiInsightHello };
+
+    explicit CameraMonitor(QObject *parent = nullptr, Input input = Input::Coaching);
+    static DeviceKind deviceKind(const QCameraDevice &device);
+    static QByteArray deviceKey(const QByteArray &id);
+    static QList<QCameraDevice> videoInputs();
+    static bool hasLogiInsightInfrared();
     ~CameraMonitor() override;
 
     void acquire();
     void release();
     bool isActive() const { return m_active; }
+    bool isUsingLogiInsightColor() const;
     QString errorString() const { return m_error; }
     bool faceTrackingAvailable() const;
 
@@ -94,6 +104,7 @@ private:
     void onFrame(const QVideoFrame &frame);
     void fail(const QString &message);
 
+    const Input m_input;
     int m_users = 0;
     bool m_active = false;
     bool m_still = false;

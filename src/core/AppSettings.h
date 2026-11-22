@@ -123,6 +123,7 @@ public:
 
 signals:
     void changed();
+    void cameraSettingsChanged();
 
 private:
     AppSettings() = default;

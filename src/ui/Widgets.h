@@ -75,7 +75,7 @@ private:
     qreal m_smile;
 };
 
-// Shows the latest camera frame with rounded corners (aspect-fill). In debug
+// Shows the latest camera frame with rounded corners. In debug
 // mode it can draw the face tracker's box, landmarks and head direction, and
 // boxes around objects the cloud AI flagged.
 class CameraPreview : public QWidget
@@ -84,6 +84,7 @@ class CameraPreview : public QWidget
 public:
     explicit CameraPreview(QWidget *parent = nullptr);
     void setFrame(const QImage &frame);
+    void setShowFullFrame(bool enabled) { m_showFullFrame = enabled; update(); }
     void setMessage(const QString &message); // shown when there is no frame
     void setOverlay(bool enabled) { m_overlay = enabled; update(); }
     void setFace(const FaceFrame &face, bool looking);
@@ -101,6 +102,7 @@ private:
     QImage m_frame;
     QString m_message;
     bool m_overlay = false;
+    bool m_showFullFrame = false;
     FaceFrame m_face;
     bool m_looking = true;
     QList<Marked> m_marked;

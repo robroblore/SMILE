@@ -53,6 +53,7 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, MicrophoneMonitor 
     m_preview->setMinimumSize(560, 315);
     m_preview->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_preview->setFixedHeight(470);
+    m_preview->setShowFullFrame(true);
     cameraCard->body()->addWidget(m_preview);
 
     auto *actions = new QHBoxLayout;

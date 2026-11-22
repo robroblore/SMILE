@@ -317,17 +317,6 @@ void AppSettings::setDebugMode(bool on)
     emit changed();
 }
 
-bool AppSettings::hapticFeedbackEnabled() const
-{
-    return value("haptics/enabled", false).toBool();
-}
-
-void AppSettings::setHapticFeedbackEnabled(bool on)
-{
-    store("haptics/enabled", on);
-    emit changed();
-}
-
 bool AppSettings::physicalHapticsEnabled() const
 {
     return value("haptics/physicalEnabled", false).toBool();

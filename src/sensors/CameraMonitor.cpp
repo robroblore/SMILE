@@ -4,7 +4,9 @@
 #include <QCameraDevice>
 #include <QCoreApplication>
 #include <QMediaDevices>
+#include <QVideoFrameFormat>
 #include <QtGlobal>
+#include <algorithm>
 
 #if QT_CONFIG(permissions)
 #include <QPermissions>
@@ -22,7 +24,8 @@ constexpr int kExpressionEveryMs = 180; // ~5 expression reads per second
 
 // ---------------------------------------------------------------- FrameWorker
 
-FrameWorker::FrameWorker()
+FrameWorker::FrameWorker(bool trackFaces)
+    : m_trackFaces(trackFaces)
 {
     m_clock.start();
 }
@@ -39,7 +42,8 @@ void FrameWorker::process(const QVideoFrame &frame)
             image = image.scaledToWidth(kMaxWidth, Qt::SmoothTransformation);
         image = image.mirrored(true, false).convertToFormat(QImage::Format_RGB32);
         emit imageReady(image, float(t.nsecsElapsed() / 1e6));
-        detect(image);
+        if (m_trackFaces)
+            detect(image);
     }
     busy = false;
 }
@@ -103,9 +107,10 @@ void FrameWorker::detect(const QImage &image)
 
 // --------------------------------------------------------------- CameraMonitor
 
-CameraMonitor::CameraMonitor(QObject *parent)
+CameraMonitor::CameraMonitor(QObject *parent, Input input)
     : QObject(parent)
-    , m_worker(new FrameWorker)
+    , m_input(input)
+    , m_worker(new FrameWorker(input == Input::Coaching))
 {
     qRegisterMetaType<FaceFrame>();
     m_worker->moveToThread(&m_thread);
@@ -148,6 +153,26 @@ CameraMonitor::~CameraMonitor()
 bool CameraMonitor::faceTrackingAvailable() const
 {
     return FaceDetector::libraryAvailable();
+}
+
+CameraMonitor::DeviceKind CameraMonitor::deviceKind(const QString &description)
+{
+    const QString name = description.simplified();
+    if (name.compare(QLatin1String("LVNext Camera"), Qt::CaseInsensitive) == 0)
+        return DeviceKind::LogiInsightColor;
+    if (name.compare(QLatin1String("LVNext CPD Camera"), Qt::CaseInsensitive) == 0)
+        return DeviceKind::LogiInsightInfrared;
+    if (name.compare(QLatin1String("LVNext Hello Camera"), Qt::CaseInsensitive) == 0)
+        return DeviceKind::LogiInsightHello;
+    return DeviceKind::Standard;
+}
+
+bool CameraMonitor::hasLogiInsightInfrared()
+{
+    const auto cameras = QMediaDevices::videoInputs();
+    return std::any_of(cameras.cbegin(), cameras.cend(), [](const QCameraDevice &camera) {
+        return deviceKind(camera.description()) == DeviceKind::LogiInsightInfrared;
+    });
 }
 
 void CameraMonitor::acquire()
@@ -194,29 +219,62 @@ void CameraMonitor::startCamera()
     }
 #endif
 
-    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-    if (cameras.isEmpty()) {
-        fail(tr("No camera found."));
-        return;
+    const bool infrared = m_input == Input::LogiInsightInfrared;
+    const QCameraDevice defaultDevice = QMediaDevices::defaultVideoInput();
+    const QByteArray preferred = AppSettings::instance().cameraId();
+    const auto cameras = QMediaDevices::videoInputs();
+    QCameraDevice device;
+    QCameraDevice fallback;
+    for (const QCameraDevice &candidate : cameras) {
+        const auto kind = deviceKind(candidate.description());
+        if (infrared) {
+            if (kind == DeviceKind::LogiInsightInfrared) {
+                device = candidate;
+                break;
+            }
+            continue;
+        }
+        if (kind == DeviceKind::LogiInsightInfrared || kind == DeviceKind::LogiInsightHello)
+            continue;
+
+        if (candidate.id() == preferred) {
+            device = candidate;
+            break;
+        }
+        if (candidate == defaultDevice)
+            device = candidate;
+        if (fallback.isNull() || kind == DeviceKind::LogiInsightColor)
+            fallback = candidate;
     }
-    QCameraDevice device = QMediaDevices::defaultVideoInput();
-    const QByteArray wanted = AppSettings::instance().cameraId();
-    for (const QCameraDevice &d : cameras) {
-        if (!wanted.isEmpty() && d.id() == wanted)
-            device = d;
+    if (device.isNull())
+        device = fallback;
+    if (device.isNull()) {
+        fail(infrared ? tr("The Logitech infrared camera is unavailable.") : tr("No camera found."));
+        return;
     }
 
     m_camera = new QCamera(device, this);
-
-    // Smooth video matters more than resolution: prefer ~30 fps at up to 720p.
-    auto score = [](const QCameraFormat &f) {
-        const QSize s = f.resolution();
-        const int area = s.width() * s.height();
-        if (area > 1280 * 720 || s.width() < 320)
+    const bool logiColor = deviceKind(device.description()) == DeviceKind::LogiInsightColor;
+    auto score = [infrared, logiColor](const QCameraFormat &format) {
+        const QSize size = format.resolution();
+        const double fps = qMin<double>(format.maxFrameRate(), 30.0);
+        if (infrared) {
+            if (size.height() <= size.width())
+                return -1.0;
+            // The SDK samples use 512×640. Prefer that or a lower bandwidth mode.
+            const double sizeScore = size == QSize(512, 640) ? 200.0
+                                   : size.height() < 640 ? 100.0 : 0.0;
+            return fps * 1000.0 + sizeScore;
+        }
+        const int area = size.width() * size.height();
+        if (area > 1280 * 720 || size.width() < 320)
             return -1.0;
-        const double fps = qMin<double>(f.maxFrameRate(), 30.0);
-        return fps * 1000.0 + area / 1000.0; // frame rate first, then size
+        // These formats leave bandwidth for the Logitech's second stream.
+        const bool logiFormat = logiColor && (format.pixelFormat() == QVideoFrameFormat::Format_NV12
+                                             || format.pixelFormat() == QVideoFrameFormat::Format_YUYV);
+        return fps * 1000.0 + (logiFormat ? 1000.0 : 0.0) + area / 1000.0;
     };
+    m_formatText.clear();
     QCameraFormat best;
     double bestScore = -1;
     for (const QCameraFormat &format : device.videoFormats()) {

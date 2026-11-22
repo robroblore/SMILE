@@ -36,6 +36,7 @@ private:
     void runCheck();
     void updateProgress();
     void updateCameraState();
+    void updateInfraredPreview();
     void updateSound();
     void showIssues(const QStringList &issues, const QStringList &good, const QString &advice);
 
@@ -49,6 +50,11 @@ private:
     QLabel *m_sound;
 
     CameraPreview *m_preview;
+    QWidget *m_infraredCard = nullptr;
+    QPushButton *m_infraredButton = nullptr;
+    CameraPreview *m_infraredPreview = nullptr;
+    CameraMonitor *m_infraredCamera = nullptr;
+    bool m_infraredAcquired = false;
     QPushButton *m_checkButton;
     QLabel *m_status;
     QVBoxLayout *m_issues;

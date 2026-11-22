@@ -35,6 +35,10 @@ Everything else (timing, key points, pace, wording, lighting, clothing) never po
 | **Results** | Your score, the three most important things to work on, a breakdown you can expand into exact measurements and timestamped moments, and the change since last time. Every earlier session is listed below and can be reopened to compare. |
 | **Settings** | AI key, how picky SMILE is (separately for meetings and training), AI intelligence, camera and microphone, mouse haptics, appearance and debug mode. |
 
+### Logitech LogiInsight webcam
+
+Connect the webcam over USB and choose **Logitech LogiInsight (color)** in **Settings → Camera**. **Check my setup** shows the entire camera frame. When the Logitech infrared feed is available, select **Show taller view** for the full monochrome image. That preview closes when you leave the page. The setup check and coaching use the camera selected in Settings.
+
 ### Training
 
 * **Rehearse**: paste your speech or notes. SMILE splits them into sections with key points, you adjust the sections and target times, then rehearse out loud. Training is graded more strictly than real meetings and gives more feedback.

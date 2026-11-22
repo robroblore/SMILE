@@ -291,6 +291,8 @@ SettingsPage::SettingsPage(CameraMonitor *camera, MicrophoneMonitor *mic, AiClie
     connect(m_cameraCombo, &QComboBox::activated, this, [this] {
         AppSettings::instance().setCameraId(m_cameraCombo->currentData().toByteArray());
     });
+    auto *devices = new QMediaDevices(this);
+    connect(devices, &QMediaDevices::videoInputsChanged, this, &SettingsPage::fillDevices);
     connect(m_micCombo, &QComboBox::activated, this, [this] {
         AppSettings::instance().setMicrophoneId(m_micCombo->currentData().toByteArray());
         if (m_micAcquired) { // restart on the new device
@@ -351,7 +353,13 @@ void SettingsPage::fillDevices()
     m_cameraCombo->clear();
     m_cameraCombo->addItem(tr("System default"), QByteArray());
     for (const QCameraDevice &d : QMediaDevices::videoInputs()) {
-        m_cameraCombo->addItem(d.description(), d.id());
+        const auto kind = CameraMonitor::deviceKind(d.description());
+        if (kind == CameraMonitor::DeviceKind::LogiInsightInfrared
+            || kind == CameraMonitor::DeviceKind::LogiInsightHello)
+            continue;
+        const QString label = kind == CameraMonitor::DeviceKind::LogiInsightColor
+            ? tr("Logitech LogiInsight (color)") : d.description();
+        m_cameraCombo->addItem(label, d.id());
         if (d.id() == settings.cameraId())
             m_cameraCombo->setCurrentIndex(m_cameraCombo->count() - 1);
     }

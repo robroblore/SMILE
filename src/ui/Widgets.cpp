@@ -234,9 +234,10 @@ void CameraPreview::paintEvent(QPaintEvent *)
     p.fillRect(r, c.dark ? QColor(0x1A, 0x1A, 0x1A) : QColor(0xE9, 0xE9, 0xE9));
 
     if (!m_frame.isNull()) {
-        // Aspect-fill
         const QSizeF img = m_frame.size();
-        const qreal scale = qMax(r.width() / img.width(), r.height() / img.height());
+        const qreal horizontal = r.width() / img.width();
+        const qreal vertical = r.height() / img.height();
+        const qreal scale = m_showFullFrame ? qMin(horizontal, vertical) : qMax(horizontal, vertical);
         const QSizeF drawn = img * scale;
         const QRectF target(r.center().x() - drawn.width() / 2, r.center().y() - drawn.height() / 2, drawn.width(),
                             drawn.height());

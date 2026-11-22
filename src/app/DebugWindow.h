@@ -13,6 +13,8 @@ class QGridLayout;
 class QLabel;
 class QListWidget;
 class QPlainTextEdit;
+class QPushButton;
+class QStackedWidget;
 class SessionController;
 
 // Debug view: shows what SMILE detects and why. Live camera with face
@@ -32,6 +34,7 @@ protected:
 
 private:
     void refresh();
+    void updateInfraredPreview();
     void onEvent(const LiveSignals::Event &event);
     void setChip(int index, const QString &name, const QString &value, int rating, const QString &detail);
 
@@ -43,6 +46,11 @@ private:
     QTimer m_bannerTimer;
 
     CameraPreview *m_preview;
+    QStackedWidget *m_cameraViews;
+    CameraPreview *m_infraredPreview;
+    QPushButton *m_infraredButton;
+    CameraMonitor *m_infraredCamera = nullptr;
+    bool m_infraredAcquired = false;
     QLabel *m_cameraStats;
     QLabel *m_banner;
     QGridLayout *m_chips;

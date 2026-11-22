@@ -70,6 +70,7 @@ public:
     void acquire();
     void release();
     bool isActive() const { return m_active; }
+    bool isUsingLogiInsightColor() const;
     QString errorString() const { return m_error; }
     bool faceTrackingAvailable() const;
 

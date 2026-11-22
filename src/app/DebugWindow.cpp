@@ -5,8 +5,11 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QListWidget>
+#include <QMediaDevices>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 #include <cmath>
 
@@ -31,6 +34,9 @@ DebugWindow::DebugWindow(CameraMonitor *camera, MicrophoneMonitor *mic, SessionC
     , m_mic(mic)
     , m_controller(controller)
     , m_preview(new CameraPreview)
+    , m_cameraViews(new QStackedWidget)
+    , m_infraredPreview(new CameraPreview)
+    , m_infraredButton(new QPushButton(tr("Show taller view")))
     , m_cameraStats(Ui::label(QString(), "secondary"))
     , m_banner(Ui::label(QString()))
     , m_chips(new QGridLayout)
@@ -50,7 +56,13 @@ DebugWindow::DebugWindow(CameraMonitor *camera, MicrophoneMonitor *mic, SessionC
 
     // ---- Left: camera + voice
     auto *cameraCard = new Card(tr("Face tracking (on this computer)"));
-    cameraCard->body()->addWidget(m_preview, 1);
+    m_infraredPreview->setShowFullFrame(true);
+    m_cameraViews->addWidget(m_preview);
+    m_cameraViews->addWidget(m_infraredPreview);
+    cameraCard->body()->addWidget(m_cameraViews, 1);
+    m_infraredButton->setCheckable(true);
+    m_infraredButton->hide();
+    cameraCard->body()->addWidget(m_infraredButton, 0, Qt::AlignLeft);
     m_cameraStats->setWordWrap(true);
     cameraCard->body()->addWidget(m_cameraStats);
 
@@ -131,6 +143,14 @@ DebugWindow::DebugWindow(CameraMonitor *camera, MicrophoneMonitor *mic, SessionC
         if (isVisible())
             m_preview->setFrame(frame);
     });
+    connect(m_infraredButton, &QPushButton::toggled, this, &DebugWindow::updateInfraredPreview);
+    connect(m_camera, &CameraMonitor::activeChanged, this, [this](bool active) {
+        if (!active)
+            m_preview->setFrame({});
+        updateInfraredPreview();
+    });
+    auto *devices = new QMediaDevices(this);
+    connect(devices, &QMediaDevices::videoInputsChanged, this, &DebugWindow::updateInfraredPreview);
     connect(&LiveSignals::instance(), &LiveSignals::eventAdded, this, &DebugWindow::onEvent);
     connect(m_mic, &MicrophoneMonitor::levelChanged, m_meter, &LevelMeter::setLevel);
     connect(m_mic, &MicrophoneMonitor::speakingChanged, m_meter, &LevelMeter::setSpeaking);
@@ -147,6 +167,7 @@ void DebugWindow::showEvent(QShowEvent *event)
         m_camera->acquire();
         m_mic->acquire();
     }
+    updateInfraredPreview();
     m_refresh.start();
 }
 
@@ -154,10 +175,40 @@ void DebugWindow::hideEvent(QHideEvent *event)
 {
     QWidget::hideEvent(event);
     m_refresh.stop();
+    updateInfraredPreview();
     if (m_acquired) {
         m_acquired = false;
         m_camera->release();
         m_mic->release();
+    }
+}
+
+void DebugWindow::updateInfraredPreview()
+{
+    const bool available = isVisible() && m_camera->isUsingLogiInsightColor()
+        && CameraMonitor::hasLogiInsightInfrared();
+    if (!available) {
+        const QSignalBlocker blocker(m_infraredButton);
+        m_infraredButton->setChecked(false);
+    }
+    const bool show = available && m_infraredButton->isChecked();
+    m_infraredButton->setVisible(available);
+    m_infraredButton->setText(show ? tr("Back to color view") : tr("Show taller view"));
+    m_cameraViews->setCurrentWidget(show ? m_infraredPreview : m_preview);
+
+    if (show && !m_infraredAcquired) {
+        if (!m_infraredCamera) {
+            m_infraredCamera = new CameraMonitor(this, CameraMonitor::Input::LogiInsightInfrared);
+            connect(m_infraredCamera, &CameraMonitor::frameReady, m_infraredPreview, &CameraPreview::setFrame);
+            connect(m_infraredCamera, &CameraMonitor::errorOccurred, m_infraredPreview, &CameraPreview::setMessage);
+        }
+        m_infraredPreview->setMessage(tr("Starting infrared camera…"));
+        m_infraredAcquired = true;
+        m_infraredCamera->acquire();
+    } else if (!show && m_infraredAcquired) {
+        m_infraredAcquired = false;
+        m_infraredCamera->release();
+        m_infraredPreview->setFrame({});
     }
 }
 

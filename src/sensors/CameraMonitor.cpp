@@ -120,6 +120,14 @@ CameraMonitor::CameraMonitor(QObject *parent, Input input)
     m_thread.setObjectName(QStringLiteral("SMILE camera"));
     m_thread.start();
 
+    if (m_input == Input::Coaching) {
+        connect(&AppSettings::instance(), &AppSettings::cameraSettingsChanged, this, [this] {
+            stopCamera();
+            if (m_users > 0)
+                startCamera();
+        });
+    }
+
     m_session.setVideoSink(&m_sink);
     connect(&m_sink, &QVideoSink::videoFrameChanged, this, &CameraMonitor::onFrame);
     connect(m_worker, &FrameWorker::imageReady, this, [this](const QImage &image, float ms) {
@@ -150,6 +158,11 @@ CameraMonitor::~CameraMonitor()
     stopCamera();
     m_thread.quit();
     m_thread.wait();
+}
+
+bool CameraMonitor::isUsingLogiInsightColor() const
+{
+    return m_active && m_camera && deviceKind(m_camera->cameraDevice()) == DeviceKind::LogiInsightColor;
 }
 
 bool CameraMonitor::faceTrackingAvailable() const

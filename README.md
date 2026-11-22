@@ -37,7 +37,7 @@ Everything else (timing, key points, pace, wording, lighting, clothing) never po
 
 ### Logitech LogiInsight webcam
 
-Connect the webcam over USB and choose **Logitech LogiInsight (color)** in **Settings → Camera**. **Check my setup** shows the entire camera frame. When the Logitech infrared feed is available, select **Show taller view** for the full monochrome image. That preview closes when you leave the page. The setup check and coaching use the camera selected in Settings.
+Connect the webcam over USB and choose **Logitech LogiInsight (color)** in **Settings → Camera**. **Check my setup** shows the entire camera frame. In **Settings → Debugging → Open debug view**, select **Show taller view** for the full monochrome image. The button is available while SMILE is using the Logitech color camera and its infrared feed is connected. The preview closes when you switch cameras or close the debug view.
 
 ### Training
 

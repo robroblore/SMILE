@@ -8,7 +8,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
-#include <QMediaDevices>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTimer>
@@ -74,17 +73,6 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, MicrophoneMonitor 
     privacy->setWordWrap(true);
     cameraCard->body()->addWidget(privacy);
 
-    auto *infraredCard = new Card(tr("Logitech infrared view"));
-    infraredCard->setGraphicsEffect(nullptr);
-    m_infraredCard = infraredCard;
-    m_infraredButton = new QPushButton(tr("Show taller view"));
-    m_infraredButton->setCheckable(true);
-    infraredCard->body()->addWidget(m_infraredButton, 0, Qt::AlignLeft);
-    m_infraredPreview = new CameraPreview;
-    m_infraredPreview->setShowFullFrame(true);
-    m_infraredPreview->setFixedHeight(420);
-    infraredCard->body()->addWidget(m_infraredPreview);
-
     // ---- Sound: microphone level and background noise, measured live
     auto *soundCard = new Card(tr("Sound"));
     auto *soundRow = new QHBoxLayout;
@@ -141,7 +129,6 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, MicrophoneMonitor 
     layout->setSpacing(12);
     layout->addWidget(Ui::pageHeader(tr("Setup check"), tr("Look and sound your best in one minute.")));
     layout->addWidget(cameraCard);
-    layout->addWidget(m_infraredCard);
     layout->addWidget(soundCard);
     layout->addWidget(checklist);
     layout->addWidget(options);
@@ -164,9 +151,6 @@ PreMeetPage::PreMeetPage(CameraMonitor *camera, AiClient *ai, MicrophoneMonitor 
     });
     connect(m_camera, &CameraMonitor::errorOccurred, this, [this](const QString &message) { m_preview->setMessage(message); });
     connect(&AppSettings::instance(), &AppSettings::changed, this, &PreMeetPage::updateCameraState);
-    connect(m_infraredButton, &QPushButton::toggled, this, &PreMeetPage::updateInfraredPreview);
-    auto *devices = new QMediaDevices(this);
-    connect(devices, &QMediaDevices::videoInputsChanged, this, &PreMeetPage::updateInfraredPreview);
 
     auto *techTimer = new QTimer(this);
     techTimer->setInterval(1000);
@@ -226,14 +210,12 @@ void PreMeetPage::showEvent(QShowEvent *event)
         m_mic->acquire();
         m_listeningSince = QDateTime::currentMSecsSinceEpoch();
     }
-    updateInfraredPreview();
     updateSound();
 }
 
 void PreMeetPage::hideEvent(QHideEvent *event)
 {
     QWidget::hideEvent(event);
-    m_infraredButton->setChecked(false);
     if (m_acquired) {
         m_acquired = false;
         m_camera->release();
@@ -298,34 +280,6 @@ void PreMeetPage::updateCameraState()
     m_checkButton->setToolTip(cloud ? QString() : tr("Add your AI key on the Settings page to use the automatic check."));
     if (!cloud && m_status->text().isEmpty())
         m_status->setText(tr("Add an AI key in Settings for a full check."));
-    updateInfraredPreview();
-}
-
-void PreMeetPage::updateInfraredPreview()
-{
-    const bool available = AppSettings::instance().useCamera() && CameraMonitor::hasLogiInsightInfrared();
-    if (!available && m_infraredButton->isChecked()) {
-        m_infraredButton->setChecked(false);
-        return;
-    }
-    m_infraredCard->setVisible(available);
-    const bool show = available && m_infraredButton->isChecked();
-    m_infraredButton->setText(show ? tr("Hide taller view") : tr("Show taller view"));
-    m_infraredPreview->setVisible(show);
-    if (show && !m_infraredAcquired) {
-        if (!m_infraredCamera) {
-            m_infraredCamera = new CameraMonitor(this, CameraMonitor::Input::LogiInsightInfrared);
-            connect(m_infraredCamera, &CameraMonitor::frameReady, m_infraredPreview, &CameraPreview::setFrame);
-            connect(m_infraredCamera, &CameraMonitor::errorOccurred, m_infraredPreview, &CameraPreview::setMessage);
-        }
-        m_infraredPreview->setMessage(tr("Starting infrared camera…"));
-        m_infraredAcquired = true;
-        m_infraredCamera->acquire();
-    } else if (!show && m_infraredAcquired) {
-        m_infraredAcquired = false;
-        m_infraredCamera->release();
-        m_infraredPreview->setFrame({});
-    }
 }
 
 void PreMeetPage::showIssues(const QStringList &issues, const QStringList &good, const QString &advice)
